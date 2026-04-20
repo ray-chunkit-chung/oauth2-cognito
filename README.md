@@ -32,3 +32,9 @@ pnpm dev
 ## Backend
 
 to be added
+
+## Route53
+
+```text
+https://www.ray-chunkit-chung.click/
+```
