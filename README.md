@@ -11,6 +11,14 @@ AWS_REGION
 AWS_ACCOUNT_ID
 ```
 
+## AWS resources prefix
+
+Fpor all AWS resources, use the following prefix:
+
+```text
+rcoauth2
+```
+
 ## Frontend
 
 ### Getting Started
