@@ -11,7 +11,7 @@ terraform {
   backend "s3" {
     bucket = "rcoauth2-terraform-state"
     key    = "frontend/terraform.tfstate"
-    region = "us-east-1"
+    region = "ap-northeast-1"
   }
 }
 
