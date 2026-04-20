@@ -45,16 +45,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
 
-    forwarded_values {
-      query_string = false
-      cookies {
-        forward = "none"
-      }
-    }
-
-    min_ttl     = 0
-    default_ttl = 86400
-    max_ttl     = 31536000
+    cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed CachingOptimized
   }
 
   # SPA fallback — serve index.html for client-side routing
@@ -86,8 +77,6 @@ resource "aws_cloudfront_distribution" "frontend" {
 # ------------------------------------------------------------------------------
 # S3 Bucket Policy — allow CloudFront OAC only
 # ------------------------------------------------------------------------------
-data "aws_caller_identity" "current" {}
-
 resource "aws_s3_bucket_policy" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
