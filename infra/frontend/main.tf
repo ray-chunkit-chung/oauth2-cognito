@@ -109,3 +109,18 @@ resource "aws_s3_bucket_policy" "frontend" {
     ]
   })
 }
+
+# ------------------------------------------------------------------------------
+# SSM Parameters — used by CI/CD deploy step
+# ------------------------------------------------------------------------------
+resource "aws_ssm_parameter" "cloudfront_distribution_id" {
+  name  = "/${var.project_prefix}/frontend/cloudfront-distribution-id"
+  type  = "String"
+  value = aws_cloudfront_distribution.frontend.id
+}
+
+resource "aws_ssm_parameter" "s3_bucket_name" {
+  name  = "/${var.project_prefix}/frontend/s3-bucket-name"
+  type  = "String"
+  value = aws_s3_bucket.frontend.id
+}

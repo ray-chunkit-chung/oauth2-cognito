@@ -85,15 +85,18 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      - name: Read SSM parameters
+        id: ssm
+        run: |
+          echo "s3_bucket=$(aws ssm get-parameter --name /rcoauth2/frontend/s3-bucket-name --query Parameter.Value --output text)" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=$(aws ssm get-parameter --name /rcoauth2/frontend/cloudfront-distribution-id --query Parameter.Value --output text)" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to S3
         working-directory: frontend
-        run: aws s3 sync out/ s3://rcoauth2-frontend --delete
+        run: aws s3 sync out/ s3://${{ steps.ssm.outputs.s3_bucket }} --delete
 
       - name: Invalidate CloudFront cache
         run: |
-          DISTRIBUTION_ID=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?Comment=='rcoauth2 frontend'].Id" \
-            --output text)
           aws cloudfront create-invalidation \
-            --distribution-id "$DISTRIBUTION_ID" \
+            --distribution-id "${{ steps.ssm.outputs.distribution_id }}" \
             --paths "/*"
