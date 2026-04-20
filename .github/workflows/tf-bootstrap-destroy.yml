@@ -1,0 +1,67 @@
+name: Terraform Bootstrap Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm deletion of backend resources'
+        required: true
+        type: string
+
+jobs:
+  destroy:
+    name: Destroy Terraform Backend
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'destroy'
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      BUCKET_NAME: rcoauth2-terraform-state
+      DYNAMO_TABLE: rcoauth2-terraform-locks
+    steps:
+      - name: Delete All Object Versions from S3
+        run: |
+          echo "Deleting all object versions from $BUCKET_NAME..."
+          # Delete all object versions
+          aws s3api list-object-versions \
+            --bucket "$BUCKET_NAME" \
+            --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+            --output json | \
+          jq -c 'select(.Objects != null) | {Objects: .Objects, Quiet: true}' | \
+          while read -r batch; do
+            if [ "$batch" != "" ] && [ "$batch" != "null" ]; then
+              aws s3api delete-objects --bucket "$BUCKET_NAME" --delete "$batch"
+            fi
+          done
+
+          # Delete all delete markers
+          aws s3api list-object-versions \
+            --bucket "$BUCKET_NAME" \
+            --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' \
+            --output json | \
+          jq -c 'select(.Objects != null) | {Objects: .Objects, Quiet: true}' | \
+          while read -r batch; do
+            if [ "$batch" != "" ] && [ "$batch" != "null" ]; then
+              aws s3api delete-objects --bucket "$BUCKET_NAME" --delete "$batch"
+            fi
+          done
+          echo "All versions and delete markers removed."
+
+      - name: Delete S3 Bucket
+        run: |
+          echo "Deleting S3 bucket: $BUCKET_NAME"
+          aws s3api delete-bucket --bucket "$BUCKET_NAME" --region "$AWS_REGION"
+          echo "S3 bucket deleted."
+
+      - name: Delete DynamoDB Lock Table
+        run: |
+          echo "Deleting DynamoDB table: $DYNAMO_TABLE"
+          aws dynamodb delete-table --table-name "$DYNAMO_TABLE" --region "$AWS_REGION"
+          echo "DynamoDB table deletion initiated."
+
+      - name: Summary
+        run: |
+          echo "## Terraform Backend Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "- **S3 Bucket**: $BUCKET_NAME - DELETED" >> $GITHUB_STEP_SUMMARY
+          echo "- **DynamoDB Table**: $DYNAMO_TABLE - DELETED" >> $GITHUB_STEP_SUMMARY

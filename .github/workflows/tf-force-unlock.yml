@@ -1,0 +1,37 @@
+name: Terraform Force Unlock
+
+on:
+  workflow_dispatch:
+    inputs:
+      lock_id:
+        description: "Lock ID to remove (from error message)"
+        required: true
+        type: string
+
+jobs:
+  unlock:
+    name: Force Unlock Terraform State
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      DYNAMO_TABLE: rcoauth2-terraform-locks
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform -chdir=infra/terraform init
+
+      - name: Force Unlock
+        run: terraform -chdir=infra/terraform force-unlock -force "${{ github.event.inputs.lock_id }}"
+
+      - name: Summary
+        run: |
+          echo "## Terraform State Unlocked" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lock ID**: ${{ github.event.inputs.lock_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Table**: $DYNAMO_TABLE" >> $GITHUB_STEP_SUMMARY
