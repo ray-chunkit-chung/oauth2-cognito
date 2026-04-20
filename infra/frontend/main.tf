@@ -2,7 +2,7 @@
 # S3 Bucket — static site hosting
 # ------------------------------------------------------------------------------
 resource "aws_s3_bucket" "frontend" {
-  bucket = "${var.project_prefix}-frontend"
+  bucket = "${var.project_prefix}-static"
 }
 
 resource "aws_s3_bucket_public_access_block" "frontend" {
