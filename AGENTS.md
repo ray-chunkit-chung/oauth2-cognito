@@ -10,3 +10,11 @@ AWS_SECRET_ACCESS_KEY
 AWS_REGION
 AWS_ACCOUNT_ID
 ```
+
+## AWS resources prefix
+
+Fpor all AWS resources, use the following prefix:
+
+```text
+rcoauth2
+```
