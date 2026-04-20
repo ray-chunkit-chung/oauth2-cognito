@@ -1,11 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "export",
   images: {
-    remotePatterns: [
-      { hostname: "lh3.googleusercontent.com" },
-      { hostname: "pbs.twimg.com" },
-    ],
+    unoptimized: true,
   },
 };
 
