@@ -41,7 +41,7 @@ This project uses Cognito Hosted UI and federates Google as an external identity
 
 Production frontend base URL used for OAuth setup:
 
-- `https://ray-chunkit-chung.click`
+- `https://d2znnfez52b22b.cloudfront.net`
 
 In Google Cloud OAuth client settings:
 
@@ -59,5 +59,5 @@ Frontend `.env.local` values are based on `frontend/.env.local.example`.
 ## Route53
 
 ```text
-https://ray-chunkit-chung.click
+Not in use for now (using CloudFront URL directly)
 ```

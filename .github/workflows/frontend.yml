@@ -77,14 +77,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        working-directory: frontend
-        run: pnpm build
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -92,31 +84,52 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Read SSM parameters
-        id: ssm
+      - name: Read deploy and auth config
+        id: config
         run: |
-          echo "s3_bucket=$(aws ssm get-parameter --name /rcoauth2/frontend/s3-bucket-name --query Parameter.Value --output text)" >> "$GITHUB_OUTPUT"
-          echo "distribution_id=$(aws ssm get-parameter --name /rcoauth2/frontend/cloudfront-distribution-id --query Parameter.Value --output text)" >> "$GITHUB_OUTPUT"
+          DIST_ID=$(aws ssm get-parameter --name /rcoauth2/frontend/cloudfront-distribution-id --query Parameter.Value --output text)
+          S3_BUCKET=$(aws ssm get-parameter --name /rcoauth2/frontend/s3-bucket-name --query Parameter.Value --output text)
+          COGNITO_CLIENT_ID=$(aws ssm get-parameter --name /rcoauth2/frontend/cognito-user-pool-client-id --query Parameter.Value --output text)
+          COGNITO_DOMAIN_PREFIX=$(aws ssm get-parameter --name /rcoauth2/frontend/cognito-hosted-ui-domain --query Parameter.Value --output text)
+          CF_DOMAIN=$(aws cloudfront get-distribution --id "$DIST_ID" --query "Distribution.DomainName" --output text)
+
+          echo "distribution_id=$DIST_ID" >> "$GITHUB_OUTPUT"
+          echo "s3_bucket=$S3_BUCKET" >> "$GITHUB_OUTPUT"
+          echo "frontend_base_url=https://$CF_DOMAIN" >> "$GITHUB_OUTPUT"
+          echo "cognito_client_id=$COGNITO_CLIENT_ID" >> "$GITHUB_OUTPUT"
+          echo "cognito_domain=${COGNITO_DOMAIN_PREFIX}.auth.${{ secrets.AWS_REGION }}.amazoncognito.com" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_COGNITO_DOMAIN: ${{ steps.config.outputs.cognito_domain }}
+          NEXT_PUBLIC_COGNITO_CLIENT_ID: ${{ steps.config.outputs.cognito_client_id }}
+          NEXT_PUBLIC_COGNITO_REDIRECT_URI: ${{ steps.config.outputs.frontend_base_url }}/auth/callback
+          NEXT_PUBLIC_COGNITO_LOGOUT_URI: ${{ steps.config.outputs.frontend_base_url }}
+        run: pnpm build
 
       - name: Deploy to S3
         working-directory: frontend
-        run: aws s3 sync out/ s3://${{ steps.ssm.outputs.s3_bucket }} --delete
+        run: aws s3 sync out/ s3://${{ steps.config.outputs.s3_bucket }} --delete
 
       - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.ssm.outputs.distribution_id }}" \
+            --distribution-id "${{ steps.config.outputs.distribution_id }}" \
             --paths "/*"
 
       - name: Deployment Summary
         if: ${{ success() }}
         run: |
-          CF_DOMAIN=$(aws cloudfront get-distribution --id "${{ steps.ssm.outputs.distribution_id }}" --query "Distribution.DomainName" --output text)
           echo "## Frontend Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| S3 Bucket | \`${{ steps.ssm.outputs.s3_bucket }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| CloudFront Distribution ID | \`${{ steps.ssm.outputs.distribution_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| CloudFront URL | [https://$CF_DOMAIN](https://$CF_DOMAIN) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| CloudFront Console | [Open distribution](https://console.aws.amazon.com/cloudfront/v4/home#/distributions/${{ steps.ssm.outputs.distribution_id }}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| S3 Bucket | \`${{ steps.config.outputs.s3_bucket }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CloudFront Distribution ID | \`${{ steps.config.outputs.distribution_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CloudFront URL | [${{ steps.config.outputs.frontend_base_url }}](${{ steps.config.outputs.frontend_base_url }}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CloudFront Console | [Open distribution](https://console.aws.amazon.com/cloudfront/v4/home#/distributions/${{ steps.config.outputs.distribution_id }}) |" >> "$GITHUB_STEP_SUMMARY"

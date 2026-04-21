@@ -7,7 +7,7 @@ variable "project_prefix" {
 variable "frontend_base_url" {
   description = "Production frontend URL"
   type        = string
-  default     = "https://ray-chunkit-chung.click"
+  default     = "https://d2znnfez52b22b.cloudfront.net"
 }
 
 variable "frontend_local_base_url" {
