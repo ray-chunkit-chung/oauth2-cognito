@@ -32,12 +32,12 @@ State is stored remotely in S3 (see providers.tf):
 
 ## Route Model
 
-Routes are split into two sets in locals:
+Routes are defined as explicit resources in main.tf so each endpoint is easy to find:
 
-- public_chat_routes: no auth (currently GET /chat/health)
-- protected_chat_routes: JWT auth required
-
-These sets are materialized with for_each in aws_apigatewayv2_route.public and aws_apigatewayv2_route.protected.
+- aws_apigatewayv2_route.health: no auth (GET /chat/health)
+- aws_apigatewayv2_route.list_sessions: JWT auth required
+- aws_apigatewayv2_route.get_session: JWT auth required
+- aws_apigatewayv2_route.post_message: JWT auth required
 
 ## Inputs, Outputs, And Cross-Stack Contract
 
@@ -73,16 +73,11 @@ These are consumed by backend GitHub Actions deployment steps.
 - chat_table_name
 - openai_secret_arn
 
-## Why moved Blocks Exist
+## State Migration Note
 
-main.tf contains moved blocks to preserve Terraform state continuity after refactors:
+This stack keeps resource definitions explicit and avoids permanent abstraction for readability.
 
-- old per-route resources -> new for_each route resources
-- old individual SSM resources -> new for_each SSM resource
-
-This avoids destroy/recreate behavior during refactor-only changes.
-
-Important: moved addresses must be static references. Do not use interpolation in moved to/from addresses.
+If you rename resource addresses in the future, use one-time state migration (moved blocks or terraform state mv) during that change, then remove migration-only scaffolding after apply.
 
 ## Day-1 And Day-2 Commands
 
@@ -117,7 +112,7 @@ Then run validate/plan again.
 ## Planning Checklist For Future Changes
 
 1. Classify change type: additive, refactor, or destructive.
-2. If refactoring resource addresses, add moved blocks before apply.
+2. If refactoring resource addresses, plan a one-time state migration before apply.
 3. Keep SSM parameter names stable unless consumers are updated.
 4. Run fmt, validate, and plan before apply.
 5. Review plan for unintended replacements.
