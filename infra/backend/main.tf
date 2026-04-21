@@ -1,5 +1,5 @@
 locals {
-  lambda_zip_path   = "${path.module}/../../backend/dist/lambda.zip"
+  lambda_zip_path    = "${path.module}/../../backend/dist/lambda.zip"
   openai_secret_name = "${var.project_prefix}/backend/openai-api-key"
 }
 
@@ -104,9 +104,9 @@ resource "aws_lambda_function" "chat_api" {
 
   environment {
     variables = {
-      CHAT_TABLE_NAME = aws_dynamodb_table.chat.name
-      OPENAI_SECRET_ARN = aws_secretsmanager_secret.openai_api_key.arn
-      OPENAI_MODEL = var.openai_model
+      CHAT_TABLE_NAME      = aws_dynamodb_table.chat.name
+      OPENAI_SECRET_ARN    = aws_secretsmanager_secret.openai_api_key.arn
+      OPENAI_MODEL         = var.openai_model
       OPENAI_SYSTEM_PROMPT = "You are a helpful assistant."
       MAX_INPUT_CHARACTERS = "4000"
     }
