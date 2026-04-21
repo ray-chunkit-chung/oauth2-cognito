@@ -1,7 +1,64 @@
 locals {
   lambda_zip_path    = "${path.module}/../../backend/dist/lambda.zip"
   openai_secret_name = "${var.project_prefix}/backend/openai-api-key"
+
+  frontend_allowed_origins = [var.frontend_base_url, var.frontend_local_base_url]
+
+  public_chat_routes = toset([
+    "GET /chat/health",
+  ])
+
+  protected_chat_routes = toset([
+    "GET /chat/sessions",
+    "GET /chat/sessions/{sessionId}",
+    "POST /chat/messages",
+  ])
+
+  backend_ssm_parameters = {
+    "chat-api-url"      = aws_apigatewayv2_stage.default.invoke_url
+    "openai-secret-arn" = aws_secretsmanager_secret.openai_api_key.arn
+    "chat-table-name"   = aws_dynamodb_table.chat.name
+  }
 }
+
+moved {
+  from = aws_apigatewayv2_route.health
+  to   = aws_apigatewayv2_route.public["GET /chat/health"]
+}
+
+moved {
+  from = aws_apigatewayv2_route.list_sessions
+  to   = aws_apigatewayv2_route.protected["GET /chat/sessions"]
+}
+
+moved {
+  from = aws_apigatewayv2_route.get_session
+  to   = aws_apigatewayv2_route.protected["GET /chat/sessions/{sessionId}"]
+}
+
+moved {
+  from = aws_apigatewayv2_route.post_message
+  to   = aws_apigatewayv2_route.protected["POST /chat/messages"]
+}
+
+moved {
+  from = aws_ssm_parameter.chat_api_url
+  to   = aws_ssm_parameter.backend["chat-api-url"]
+}
+
+moved {
+  from = aws_ssm_parameter.openai_secret_arn
+  to   = aws_ssm_parameter.backend["openai-secret-arn"]
+}
+
+moved {
+  from = aws_ssm_parameter.chat_table_name
+  to   = aws_ssm_parameter.backend["chat-table-name"]
+}
+
+# ------------------------------------------------------------------------------
+# Cognito Config Inputs (from frontend stack)
+# ------------------------------------------------------------------------------
 
 data "aws_ssm_parameter" "cognito_user_pool_id" {
   name = "/${var.project_prefix}/frontend/cognito-user-pool-id"
@@ -10,6 +67,10 @@ data "aws_ssm_parameter" "cognito_user_pool_id" {
 data "aws_ssm_parameter" "cognito_user_pool_client_id" {
   name = "/${var.project_prefix}/frontend/cognito-user-pool-client-id"
 }
+
+# ------------------------------------------------------------------------------
+# Secrets, Data Store, and Lambda Runtime
+# ------------------------------------------------------------------------------
 
 resource "aws_secretsmanager_secret" "openai_api_key" {
   name                    = local.openai_secret_name
@@ -118,12 +179,16 @@ resource "aws_cloudwatch_log_group" "chat_api" {
   retention_in_days = 14
 }
 
+# ------------------------------------------------------------------------------
+# API Gateway (HTTP API + JWT Auth)
+# ------------------------------------------------------------------------------
+
 resource "aws_apigatewayv2_api" "chat" {
   name          = "${var.project_prefix}-chat-http-api"
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins = [var.frontend_base_url, var.frontend_local_base_url]
+    allow_origins = local.frontend_allowed_origins
     allow_methods = ["GET", "POST", "OPTIONS"]
     allow_headers = ["authorization", "content-type"]
     max_age       = 3600
@@ -149,31 +214,19 @@ resource "aws_apigatewayv2_integration" "chat_lambda" {
   payload_format_version = "2.0"
 }
 
-resource "aws_apigatewayv2_route" "health" {
+resource "aws_apigatewayv2_route" "public" {
+  for_each = local.public_chat_routes
+
   api_id    = aws_apigatewayv2_api.chat.id
-  route_key = "GET /chat/health"
+  route_key = each.value
   target    = "integrations/${aws_apigatewayv2_integration.chat_lambda.id}"
 }
 
-resource "aws_apigatewayv2_route" "list_sessions" {
-  api_id             = aws_apigatewayv2_api.chat.id
-  route_key          = "GET /chat/sessions"
-  authorization_type = "JWT"
-  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
-  target             = "integrations/${aws_apigatewayv2_integration.chat_lambda.id}"
-}
+resource "aws_apigatewayv2_route" "protected" {
+  for_each = local.protected_chat_routes
 
-resource "aws_apigatewayv2_route" "get_session" {
   api_id             = aws_apigatewayv2_api.chat.id
-  route_key          = "GET /chat/sessions/{sessionId}"
-  authorization_type = "JWT"
-  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
-  target             = "integrations/${aws_apigatewayv2_integration.chat_lambda.id}"
-}
-
-resource "aws_apigatewayv2_route" "post_message" {
-  api_id             = aws_apigatewayv2_api.chat.id
-  route_key          = "POST /chat/messages"
+  route_key          = each.value
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
   target             = "integrations/${aws_apigatewayv2_integration.chat_lambda.id}"
@@ -193,20 +246,13 @@ resource "aws_lambda_permission" "allow_apigw" {
   source_arn    = "${aws_apigatewayv2_api.chat.execution_arn}/*/*"
 }
 
-resource "aws_ssm_parameter" "chat_api_url" {
-  name  = "/${var.project_prefix}/backend/chat-api-url"
-  type  = "String"
-  value = aws_apigatewayv2_stage.default.invoke_url
-}
+# ------------------------------------------------------------------------------
+# Backend Parameters (for app and CI/CD)
+# ------------------------------------------------------------------------------
+resource "aws_ssm_parameter" "backend" {
+  for_each = local.backend_ssm_parameters
 
-resource "aws_ssm_parameter" "openai_secret_arn" {
-  name  = "/${var.project_prefix}/backend/openai-secret-arn"
+  name  = "/${var.project_prefix}/backend/${each.key}"
   type  = "String"
-  value = aws_secretsmanager_secret.openai_api_key.arn
-}
-
-resource "aws_ssm_parameter" "chat_table_name" {
-  name  = "/${var.project_prefix}/backend/chat-table-name"
-  type  = "String"
-  value = aws_dynamodb_table.chat.name
+  value = each.value
 }
