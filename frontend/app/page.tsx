@@ -20,6 +20,10 @@ import {
   postChatMessage,
 } from "@/lib/chat-api";
 
+const TEMP_USER_MESSAGE_PREFIX = "temp-user-";
+const TEMP_ASSISTANT_MESSAGE_PREFIX = "temp-assistant-";
+const SLOW_SEND_HINT_DELAY_MS = 1500;
+
 function sortSessionsByUpdatedAt(a: ChatSession, b: ChatSession): number {
   if (a.updatedAt === b.updatedAt) {
     return 0;
@@ -62,8 +66,10 @@ export default function Home() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [showSlowSendHint, setShowSlowSendHint] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const lastAssistantMessageIdRef = useRef<string | null>(null);
+  const slowSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isChatConfigured = Boolean(
     (process.env.NEXT_PUBLIC_CHAT_API_BASE_URL ?? "").trim(),
@@ -197,6 +203,31 @@ export default function Home() {
     });
   }, [messages]);
 
+  useEffect(() => {
+    if (!isSending) {
+      if (slowSendTimerRef.current) {
+        clearTimeout(slowSendTimerRef.current);
+        slowSendTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (slowSendTimerRef.current) {
+      clearTimeout(slowSendTimerRef.current);
+    }
+
+    slowSendTimerRef.current = setTimeout(() => {
+      setShowSlowSendHint(true);
+    }, SLOW_SEND_HINT_DELAY_MS);
+
+    return () => {
+      if (slowSendTimerRef.current) {
+        clearTimeout(slowSendTimerRef.current);
+        slowSendTimerRef.current = null;
+      }
+    };
+  }, [isSending]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -205,17 +236,30 @@ export default function Home() {
       return;
     }
 
+    const requestId = Date.now();
+
     const optimisticUserMessage: ChatMessage = {
-      id: `temp-${Date.now()}`,
+      id: `${TEMP_USER_MESSAGE_PREFIX}${requestId}`,
       role: "user",
       content: text,
+      createdAt: new Date().toISOString(),
+    };
+    const optimisticAssistantMessage: ChatMessage = {
+      id: `${TEMP_ASSISTANT_MESSAGE_PREFIX}${requestId}`,
+      role: "assistant",
+      content: "",
       createdAt: new Date().toISOString(),
     };
 
     setDraft("");
     setError(null);
+    setShowSlowSendHint(false);
     setIsSending(true);
-    setMessages((prev) => [...prev, optimisticUserMessage]);
+    setMessages((prev) => [
+      ...prev,
+      optimisticUserMessage,
+      optimisticAssistantMessage,
+    ]);
 
     try {
       const response = await postChatMessage({
@@ -225,7 +269,11 @@ export default function Home() {
 
       setActiveSessionId(response.session.id);
       setMessages((prev) => [
-        ...prev.filter((item) => item.id !== optimisticUserMessage.id),
+        ...prev.filter(
+          (item) =>
+            item.id !== optimisticUserMessage.id &&
+            item.id !== optimisticAssistantMessage.id,
+        ),
         response.userMessage,
         response.assistantMessage,
       ]);
@@ -237,11 +285,16 @@ export default function Home() {
       });
     } catch (sendError) {
       setMessages((prev) =>
-        prev.filter((item) => item.id !== optimisticUserMessage.id),
+        prev.filter(
+          (item) =>
+            item.id !== optimisticUserMessage.id &&
+            item.id !== optimisticAssistantMessage.id,
+        ),
       );
       setDraft(text);
       setError(toErrorMessage(sendError));
     } finally {
+      setShowSlowSendHint(false);
       setIsSending(false);
     }
   }
@@ -349,9 +402,14 @@ export default function Home() {
 
             <div className="space-y-2 overflow-y-auto pr-1">
               {isLoadingSessions && (
-                <p className="px-2 text-xs text-slate-400">
-                  Loading sessions...
-                </p>
+                <div className="space-y-2 px-1" aria-hidden="true">
+                  {[0, 1, 2, 3].map((index) => (
+                    <div
+                      key={`session-skeleton-${index}`}
+                      className="skeleton-shimmer h-16 rounded-xl border border-slate-800 bg-slate-900/70"
+                    />
+                  ))}
+                </div>
               )}
 
               {!isLoadingSessions && orderedSessions.length === 0 && (
@@ -432,7 +490,11 @@ export default function Home() {
 
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
               {isLoadingMessages && (
-                <p className="text-sm text-slate-400">Loading messages...</p>
+                <div className="space-y-3" aria-hidden="true">
+                  <div className="skeleton-shimmer h-16 w-[72%] rounded-2xl border border-slate-800 bg-slate-900/70" />
+                  <div className="skeleton-shimmer ml-auto h-14 w-[55%] rounded-2xl border border-slate-700 bg-cyan-500/20" />
+                  <div className="skeleton-shimmer h-20 w-[68%] rounded-2xl border border-slate-800 bg-slate-900/70" />
+                </div>
               )}
 
               {!isLoadingMessages && messages.length === 0 && (
@@ -443,25 +505,49 @@ export default function Home() {
 
               {messages.map((message) => {
                 const isUser = message.role === "user";
+                const isPendingAssistant =
+                  !isUser &&
+                  message.id.startsWith(TEMP_ASSISTANT_MESSAGE_PREFIX) &&
+                  !message.content;
                 return (
                   <article
                     key={message.id}
                     className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow ${
                       isUser
                         ? "ml-auto bg-cyan-500 text-slate-950"
-                        : "mr-auto border border-slate-700 bg-slate-900 text-slate-100"
+                        : isPendingAssistant
+                          ? "mr-auto border border-cyan-400/30 bg-slate-900 text-slate-100"
+                          : "mr-auto border border-slate-700 bg-slate-900 text-slate-100"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap leading-relaxed">
-                      {message.content}
-                    </p>
-                    <p
-                      className={`mt-2 text-[11px] ${
-                        isUser ? "text-cyan-950/80" : "text-slate-400"
-                      }`}
-                    >
-                      {formatTimestamp(message.createdAt)}
-                    </p>
+                    {isPendingAssistant ? (
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="typing-dots"
+                          aria-label="Assistant is thinking"
+                        >
+                          <span />
+                          <span />
+                          <span />
+                        </span>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          Assistant is thinking
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="whitespace-pre-wrap leading-relaxed">
+                          {message.content}
+                        </p>
+                        <p
+                          className={`mt-2 text-[11px] ${
+                            isUser ? "text-cyan-950/80" : "text-slate-400"
+                          }`}
+                        >
+                          {formatTimestamp(message.createdAt)}
+                        </p>
+                      </>
+                    )}
                   </article>
                 );
               })}
@@ -472,6 +558,13 @@ export default function Home() {
             {error && (
               <div className="mx-5 mb-3 rounded-lg border border-rose-500/40 bg-rose-900/20 px-3 py-2 text-sm text-rose-200">
                 {error}
+              </div>
+            )}
+
+            {showSlowSendHint && (
+              <div className="mx-5 mb-3 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-200">
+                Waking up assistant. First response after idle may take a few
+                seconds.
               </div>
             )}
 
@@ -495,7 +588,14 @@ export default function Home() {
                   disabled={isSending || !draft.trim()}
                   className="h-11 rounded-xl bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
                 >
-                  {isSending ? "Sending..." : "Send"}
+                  {isSending ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-950/70 border-t-transparent" />
+                      Sending...
+                    </span>
+                  ) : (
+                    "Send"
+                  )}
                 </button>
               </div>
               <p className="mt-2 text-xs text-slate-400">
