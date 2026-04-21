@@ -10,12 +10,6 @@ variable "frontend_base_url" {
   default     = "https://d2znnfez52b22b.cloudfront.net"
 }
 
-variable "frontend_local_base_url" {
-  description = "Local frontend URL"
-  type        = string
-  default     = "http://localhost:3000"
-}
-
 variable "cognito_domain_prefix" {
   description = "Cognito Hosted UI domain prefix"
   type        = string

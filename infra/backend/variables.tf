@@ -10,12 +10,6 @@ variable "frontend_base_url" {
   default     = "https://d2znnfez52b22b.cloudfront.net"
 }
 
-variable "frontend_local_base_url" {
-  description = "Local frontend URL for API CORS"
-  type        = string
-  default     = "http://localhost:3000"
-}
-
 variable "openai_model" {
   description = "OpenAI model name"
   type        = string

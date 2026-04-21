@@ -228,7 +228,7 @@ This enforces per-user isolation by Cognito subject.
 ### Terraform Inputs
 
 - Frontend: `google_client_id`, `google_client_secret`
-- Backend: `project_prefix`, `frontend_base_url`, `frontend_local_base_url`, `openai_model`
+- Backend: `project_prefix`, `frontend_base_url`, `openai_model`
 
 ## Local Development Notes
 

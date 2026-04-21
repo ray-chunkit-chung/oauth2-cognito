@@ -179,12 +179,10 @@ resource "aws_cognito_user_pool_client" "spa" {
 
   callback_urls = [
     "${var.frontend_base_url}/auth/callback",
-    "${var.frontend_local_base_url}/auth/callback",
   ]
 
   logout_urls = [
     var.frontend_base_url,
-    var.frontend_local_base_url,
   ]
 
   prevent_user_existence_errors = "ENABLED"

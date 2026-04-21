@@ -6,7 +6,7 @@ locals {
   openai_secret_name = "${var.project_prefix}/backend/openai-api-key"
 
   # Browser origins allowed to call this API through CORS.
-  frontend_allowed_origins = [var.frontend_base_url, var.frontend_local_base_url]
+  frontend_allowed_origins = [var.frontend_base_url]
 }
 
 # ------------------------------------------------------------------------------
