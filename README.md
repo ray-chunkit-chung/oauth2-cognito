@@ -36,6 +36,10 @@ pnpm dev
 
 Python 3.13 AWS Lambda backend with API Gateway, Cognito JWT auth, DynamoDB chat history, and OpenAI integration.
 
+Backend Terraform explanation and planning guide:
+
+- `infra/backend/README.md`
+
 ### Backend Stack
 
 - Runtime: AWS Lambda (`python3.13`)
