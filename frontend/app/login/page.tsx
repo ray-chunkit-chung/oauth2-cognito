@@ -11,14 +11,16 @@ export default function LoginPage() {
             Sign in
           </h1>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            Choose a provider to continue
+            Continue with Google
           </p>
         </div>
 
         <div className="space-y-3">
           <button
             type="button"
-            onClick={() => signIn("google")}
+            onClick={() => {
+              void signIn("google");
+            }}
             className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-zinc-300 bg-white text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -40,17 +42,6 @@ export default function LoginPage() {
               />
             </svg>
             Continue with Google
-          </button>
-
-          <button
-            type="button"
-            onClick={() => signIn("twitter")}
-            className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-zinc-300 bg-white text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-            </svg>
-            Continue with X
           </button>
         </div>
       </div>

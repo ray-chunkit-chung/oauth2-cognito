@@ -14,6 +14,9 @@ jobs:
   destroy:
     name: Destroy Frontend Resources
     runs-on: ubuntu-latest
+    env:
+      TF_VAR_google_client_id: ${{ secrets.GOOGLE_CLIENT_ID }}
+      TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
 
     steps:
       - name: Checkout

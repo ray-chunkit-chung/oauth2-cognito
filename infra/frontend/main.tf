@@ -100,6 +100,76 @@ resource "aws_s3_bucket_policy" "frontend" {
 }
 
 # ------------------------------------------------------------------------------
+# Cognito User Pool + Google Identity Provider (OAuth2)
+# ------------------------------------------------------------------------------
+resource "aws_cognito_user_pool" "frontend" {
+  name = "${var.project_prefix}-user-pool"
+
+  auto_verified_attributes = ["email"]
+  alias_attributes         = ["email"]
+}
+
+resource "aws_cognito_identity_provider" "google" {
+  user_pool_id  = aws_cognito_user_pool.frontend.id
+  provider_name = "Google"
+  provider_type = "Google"
+
+  provider_details = {
+    authorize_scopes = "openid email profile"
+    client_id        = var.google_client_id
+    client_secret    = var.google_client_secret
+  }
+
+  attribute_mapping = {
+    email    = "email"
+    name     = "name"
+    picture  = "picture"
+    username = "sub"
+  }
+}
+
+resource "aws_cognito_user_pool_domain" "frontend" {
+  domain       = var.cognito_domain_prefix
+  user_pool_id = aws_cognito_user_pool.frontend.id
+}
+
+resource "aws_cognito_user_pool_client" "spa" {
+  name         = "${var.project_prefix}-spa-client"
+  user_pool_id = aws_cognito_user_pool.frontend.id
+
+  generate_secret = false
+
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  supported_identity_providers         = ["Google"]
+
+  callback_urls = [
+    "${var.frontend_base_url}/auth/callback",
+    "${var.frontend_local_base_url}/auth/callback",
+  ]
+
+  logout_urls = [
+    var.frontend_base_url,
+    var.frontend_local_base_url,
+  ]
+
+  prevent_user_existence_errors = "ENABLED"
+
+  access_token_validity  = 60
+  id_token_validity      = 60
+  refresh_token_validity = 30
+
+  token_validity_units {
+    access_token  = "minutes"
+    id_token      = "minutes"
+    refresh_token = "days"
+  }
+
+  depends_on = [aws_cognito_identity_provider.google]
+}
+
+# ------------------------------------------------------------------------------
 # SSM Parameters — used by CI/CD deploy step
 # ------------------------------------------------------------------------------
 resource "aws_ssm_parameter" "cloudfront_distribution_id" {
@@ -112,4 +182,22 @@ resource "aws_ssm_parameter" "s3_bucket_name" {
   name  = "/${var.project_prefix}/frontend/s3-bucket-name"
   type  = "String"
   value = aws_s3_bucket.frontend.id
+}
+
+resource "aws_ssm_parameter" "cognito_user_pool_id" {
+  name  = "/${var.project_prefix}/frontend/cognito-user-pool-id"
+  type  = "String"
+  value = aws_cognito_user_pool.frontend.id
+}
+
+resource "aws_ssm_parameter" "cognito_user_pool_client_id" {
+  name  = "/${var.project_prefix}/frontend/cognito-user-pool-client-id"
+  type  = "String"
+  value = aws_cognito_user_pool_client.spa.id
+}
+
+resource "aws_ssm_parameter" "cognito_hosted_ui_domain" {
+  name  = "/${var.project_prefix}/frontend/cognito-hosted-ui-domain"
+  type  = "String"
+  value = aws_cognito_user_pool_domain.frontend.domain
 }
