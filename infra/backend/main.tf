@@ -120,7 +120,7 @@ resource "aws_lambda_function" "chat_api" {
   runtime       = "python3.13"
   handler       = "handler.lambda_handler"
   timeout       = 30
-  memory_size   = 512
+  memory_size   = 1024
 
   filename         = local.lambda_zip_path
   source_code_hash = filebase64sha256(local.lambda_zip_path)
@@ -253,6 +253,37 @@ resource "aws_lambda_permission" "allow_apigw" {
   function_name = aws_lambda_function.chat_api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.chat.execution_arn}/*/*"
+}
+
+resource "aws_cloudwatch_event_rule" "lambda_warmup" {
+  # Keeps one execution environment warm to reduce first-request latency after idle periods.
+  count = var.enable_lambda_warmup ? 1 : 0
+
+  name                = "${var.project_prefix}-chat-lambda-warmup"
+  description         = "Periodic warmup for ${aws_lambda_function.chat_api.function_name}"
+  schedule_expression = "rate(${var.lambda_warmup_interval_minutes} minutes)"
+}
+
+resource "aws_cloudwatch_event_target" "lambda_warmup" {
+  count = var.enable_lambda_warmup ? 1 : 0
+
+  rule      = aws_cloudwatch_event_rule.lambda_warmup[0].name
+  target_id = "chat-lambda-warmup"
+  arn       = aws_lambda_function.chat_api.arn
+
+  input = jsonencode({
+    routeKey = "GET /chat/health"
+  })
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_warmup" {
+  count = var.enable_lambda_warmup ? 1 : 0
+
+  statement_id  = "AllowExecutionFromEventBridgeWarmup"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.chat_api.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.lambda_warmup[0].arn
 }
 
 # ------------------------------------------------------------------------------
