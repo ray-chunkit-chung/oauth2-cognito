@@ -156,6 +156,7 @@ sequenceDiagram
 5. Frontend checks local session state:
    - unauthenticated users are redirected to `/login`
    - authenticated users can load sessions/messages
+6. Chat UI behavior: message composer uses `Enter` for newline and `Shift+Enter` to send, and users can delete a single session from the sidebar after a confirmation prompt.
 
 ### Backend Runtime
 
@@ -164,6 +165,7 @@ Routes:
 - `GET /chat/health` (public)
 - `GET /chat/sessions` (JWT required)
 - `GET /chat/sessions/{sessionId}` (JWT required)
+- `DELETE /chat/sessions/{sessionId}` (JWT required)
 - `POST /chat/messages` (JWT required)
 
 Message request lifecycle (`POST /chat/messages`):
@@ -176,6 +178,15 @@ Message request lifecycle (`POST /chat/messages`):
 6. Save assistant message.
 7. Update session metadata (`updatedAt`, preview, message count).
 8. Return updated session + both messages.
+
+Delete session lifecycle (`DELETE /chat/sessions/{sessionId}`):
+
+1. Validate JWT and extract Cognito `sub`.
+2. Validate `sessionId` path parameter.
+3. Verify the target session belongs to the authenticated user.
+4. Query all messages under that session.
+5. Delete all matching message items and the session metadata item.
+6. Return deletion summary (`sessionId`, `deletedMessageCount`).
 
 Data isolation model:
 
