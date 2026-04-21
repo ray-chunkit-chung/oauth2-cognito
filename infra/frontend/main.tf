@@ -18,7 +18,7 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
 # CloudFront Origin Access Control
 # ------------------------------------------------------------------------------
 resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "${var.project_prefix}-frontend-oac"
+  name                              = "${var.project_prefix}-frontend-oac-v2"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
