@@ -91,6 +91,7 @@ jobs:
           S3_BUCKET=$(aws ssm get-parameter --name /rcoauth2/frontend/s3-bucket-name --query Parameter.Value --output text)
           COGNITO_CLIENT_ID=$(aws ssm get-parameter --name /rcoauth2/frontend/cognito-user-pool-client-id --query Parameter.Value --output text)
           COGNITO_DOMAIN_PREFIX=$(aws ssm get-parameter --name /rcoauth2/frontend/cognito-hosted-ui-domain --query Parameter.Value --output text)
+          CHAT_API_URL=$(aws ssm get-parameter --name /rcoauth2/backend/chat-api-url --query Parameter.Value --output text)
           CF_DOMAIN=$(aws cloudfront get-distribution --id "$DIST_ID" --query "Distribution.DomainName" --output text)
 
           echo "distribution_id=$DIST_ID" >> "$GITHUB_OUTPUT"
@@ -98,6 +99,7 @@ jobs:
           echo "frontend_base_url=https://$CF_DOMAIN" >> "$GITHUB_OUTPUT"
           echo "cognito_client_id=$COGNITO_CLIENT_ID" >> "$GITHUB_OUTPUT"
           echo "cognito_domain=${COGNITO_DOMAIN_PREFIX}.auth.${{ secrets.AWS_REGION }}.amazoncognito.com" >> "$GITHUB_OUTPUT"
+          echo "chat_api_url=$CHAT_API_URL" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         working-directory: frontend
@@ -110,6 +112,7 @@ jobs:
           NEXT_PUBLIC_COGNITO_CLIENT_ID: ${{ steps.config.outputs.cognito_client_id }}
           NEXT_PUBLIC_COGNITO_REDIRECT_URI: ${{ steps.config.outputs.frontend_base_url }}/auth/callback
           NEXT_PUBLIC_COGNITO_LOGOUT_URI: ${{ steps.config.outputs.frontend_base_url }}
+          NEXT_PUBLIC_CHAT_API_BASE_URL: ${{ steps.config.outputs.chat_api_url }}
         run: pnpm build
 
       - name: Verify callback export exists

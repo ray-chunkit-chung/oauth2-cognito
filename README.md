@@ -34,18 +34,44 @@ pnpm dev
 
 ## Backend
 
-to be added
+Python 3.13 AWS Lambda backend with API Gateway, Cognito JWT auth, DynamoDB chat history, and OpenAI integration.
+
+### Backend Stack
+
+- Runtime: AWS Lambda (`python3.13`)
+- API: API Gateway HTTP API
+- Auth: Cognito JWT authorizer (same user pool/client as frontend login)
+- Data: DynamoDB table for per-user sessions and messages
+- Secret: AWS Secrets Manager (`rcoauth2/backend/openai-api-key`)
+
+### Backend API Routes
+
+- `GET /chat/health` (public health check)
+- `GET /chat/sessions` (authenticated)
+- `GET /chat/sessions/{sessionId}` (authenticated)
+- `POST /chat/messages` (authenticated, non-streaming)
+
+### Data Isolation
+
+Chat records are partitioned by Cognito `sub`, so users can only read/write their own sessions and messages.
+
+### Session Title Behavior
+
+Session title is generated automatically from the first user message and saved for subsequent use.
 
 ## Architecture Summary
 
-This project is a static Next.js frontend hosted on AWS and authenticated through Cognito + Google.
+This project is a static Next.js frontend hosted on AWS, authenticated through Cognito + Google, and connected to a Python chatbot backend.
 
 - Frontend app: Next.js static export (`frontend/out`)
 - Static hosting origin: S3 bucket (`rcoauth2-static`)
 - CDN/edge: CloudFront (serves app and rewrites extensionless routes)
+- Chat API: API Gateway HTTP API + Lambda (`python3.13`)
+- Chat storage: DynamoDB (`rcoauth2-chat`)
+- OpenAI key storage: AWS Secrets Manager
 - Auth broker: Cognito User Pool + Hosted UI
 - External identity provider: Google OAuth 2.0
-- CI/CD: GitHub Actions (`.github/workflows/frontend.yml`)
+- CI/CD: GitHub Actions (`.github/workflows/frontend.yml`, `.github/workflows/backend.yml`)
 
 Current production entrypoint:
 
@@ -58,6 +84,11 @@ flowchart LR
   User[User Browser]
   CF[CloudFront]
   S3[S3 Static Site Bucket]
+  API[API Gateway]
+  L[Lambda Python 3.13]
+  DDB[DynamoDB Chat Table]
+  SM[Secrets Manager]
+  OAI[OpenAI API]
   Cognito[Cognito Hosted UI]
   Google[Google OAuth]
   GHA[GitHub Actions]
@@ -65,6 +96,11 @@ flowchart LR
 
   User --> CF
   CF --> S3
+  User --> API
+  API --> L
+  L --> DDB
+  L --> SM
+  L --> OAI
 
   User --> Cognito
   Cognito --> Google
@@ -74,6 +110,10 @@ flowchart LR
   GHA --> TF
   TF --> CF
   TF --> S3
+  TF --> API
+  TF --> L
+  TF --> DDB
+  TF --> SM
   TF --> Cognito
 ```
 
@@ -191,6 +231,17 @@ flowchart TD
 - `NEXT_PUBLIC_COGNITO_CLIENT_ID`
 - `NEXT_PUBLIC_COGNITO_REDIRECT_URI`
 - `NEXT_PUBLIC_COGNITO_LOGOUT_URI`
+- `NEXT_PUBLIC_CHAT_API_BASE_URL`
+
+## Backend CI/CD
+
+Workflow: `.github/workflows/backend.yml`
+
+1. Builds Lambda package from `backend/` using Python 3.13.
+2. Applies Terraform in `infra/backend/`.
+3. Reads backend outputs from SSM.
+4. Updates Secrets Manager value from GitHub Actions secret `OPENAI_API_KEY`.
+5. Runs a health endpoint smoke test.
 
 ## Route53
 

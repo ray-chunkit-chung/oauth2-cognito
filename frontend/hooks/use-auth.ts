@@ -274,3 +274,31 @@ export function signOut() {
 
   window.location.assign(logoutUrl.toString());
 }
+
+export function getAccessToken(): string | null {
+  const session = readSession();
+  if (!session) {
+    return null;
+  }
+
+  if (Date.now() >= session.expiresAt * 1000) {
+    clearSession();
+    return null;
+  }
+
+  return session.accessToken;
+}
+
+export function getIdToken(): string | null {
+  const session = readSession();
+  if (!session) {
+    return null;
+  }
+
+  if (Date.now() >= session.expiresAt * 1000) {
+    clearSession();
+    return null;
+  }
+
+  return session.idToken;
+}

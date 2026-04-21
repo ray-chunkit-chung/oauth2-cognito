@@ -1,0 +1,93 @@
+name: Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "infra/backend/**"
+      - ".github/workflows/backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build Lambda package
+        run: |
+          chmod +x ../../backend/build.sh
+          ../../backend/build.sh
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Read backend config from SSM
+        id: config
+        run: |
+          CHAT_API_URL=$(aws ssm get-parameter --name /rcoauth2/backend/chat-api-url --query Parameter.Value --output text)
+          OPENAI_SECRET_ARN=$(aws ssm get-parameter --name /rcoauth2/backend/openai-secret-arn --query Parameter.Value --output text)
+
+          echo "chat_api_url=$CHAT_API_URL" >> "$GITHUB_OUTPUT"
+          echo "openai_secret_arn=$OPENAI_SECRET_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Update OpenAI secret value
+        run: |
+          aws secretsmanager put-secret-value \
+            --secret-id "${{ steps.config.outputs.openai_secret_arn }}" \
+            --secret-string "${{ secrets.OPENAI_API_KEY }}"
+
+      - name: Smoke test health endpoint
+        run: |
+          curl -fsS "${{ steps.config.outputs.chat_api_url }}/chat/health"
+
+      - name: Deployment Summary
+        if: ${{ success() }}
+        run: |
+          echo "## Backend Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Chat API URL | [${{ steps.config.outputs.chat_api_url }}](${{ steps.config.outputs.chat_api_url }}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| OpenAI Secret ARN | \`${{ steps.config.outputs.openai_secret_arn }}\` |" >> "$GITHUB_STEP_SUMMARY"
