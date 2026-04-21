@@ -8,13 +8,10 @@ terraform {
     }
   }
 
-  backend "s3" {
-    bucket = "rcoauth2-terraform-state"
-    key    = "backend/terraform.tfstate"
-    region = "ap-northeast-1"
-  }
+  
 }
 
 provider "aws" {}
 
 data "aws_region" "current" {}
+
