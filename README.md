@@ -2,7 +2,7 @@
 
 ## Secrets
 
-Use secrets in github actions for CI/CD pipelines.
+Use these GitHub Actions secrets for CI/CD:
 
 ```text
 AWS_ACCESS_KEY_ID
@@ -14,222 +14,199 @@ GOOGLE_CLIENT_SECRET
 OPENAI_API_KEY
 ```
 
-## AWS resources prefix
+## AWS Resource Prefix
 
-For all AWS resources, use the following prefix:
+All AWS resources use this prefix:
 
 ```text
 rcoauth2
 ```
 
-## Frontend
+## Current Architecture
 
-### Getting Started
-
-First, run the development server:
-
-```bash
-pnpm dev
-```
-
-## Backend
-
-Python 3.13 AWS Lambda backend with API Gateway, Cognito JWT auth, DynamoDB chat history, and OpenAI integration.
-
-Backend Terraform explanation and planning guide:
-
-- `infra/backend/README.md`
-
-### Backend Stack
-
-- Runtime: AWS Lambda (`python3.13`)
-- API: API Gateway HTTP API
-- Auth: Cognito JWT authorizer (same user pool/client as frontend login)
-- Data: DynamoDB table for per-user sessions and messages
-- Secret: AWS Secrets Manager (`rcoauth2/backend/openai-api-key`)
-
-### Backend API Routes
-
-- `GET /chat/health` (public health check)
-- `GET /chat/sessions` (authenticated)
-- `GET /chat/sessions/{sessionId}` (authenticated)
-- `POST /chat/messages` (authenticated, non-streaming)
-
-### Data Isolation
-
-Chat records are partitioned by Cognito `sub`, so users can only read/write their own sessions and messages.
-
-### Session Title Behavior
-
-Session title is generated automatically from the first user message and saved for subsequent use.
-
-## Architecture Summary
-
-This project is a static Next.js frontend hosted on AWS, authenticated through Cognito + Google, and connected to a Python chatbot backend.
+This project is a static Next.js frontend on CloudFront/S3 with Google login via Cognito Hosted UI, plus a Python Lambda chat backend behind API Gateway.
 
 - Frontend app: Next.js static export (`frontend/out`)
-- Static hosting origin: S3 bucket (`rcoauth2-static`)
-- CDN/edge: CloudFront (serves app and rewrites extensionless routes)
-- Chat API: API Gateway HTTP API + Lambda (`python3.13`)
-- Chat storage: DynamoDB (`rcoauth2-chat`)
-- OpenAI key storage: AWS Secrets Manager
-- Auth broker: Cognito User Pool + Hosted UI
+- Static hosting: S3 (`rcoauth2-static`)
+- CDN/edge: CloudFront + CloudFront Function rewrite
+- Auth broker: Cognito User Pool + Hosted UI domain
 - External identity provider: Google OAuth 2.0
+- API: API Gateway HTTP API
+- Compute: Lambda (`python3.13`)
+- Data store: DynamoDB (`rcoauth2-chat`)
+- Secret store: AWS Secrets Manager (`rcoauth2/backend/openai-api-key`)
 - CI/CD: GitHub Actions (`.github/workflows/frontend.yml`, `.github/workflows/backend.yml`)
 
-Current production entrypoint:
+Production entrypoint:
 
 - `https://d2znnfez52b22b.cloudfront.net`
 
-Route53/custom domain is intentionally not used at the moment.
-
 ```mermaid
 flowchart LR
-  User[User Browser]
+  U[User Browser]
   CF[CloudFront]
   S3[S3 Static Site Bucket]
-  API[API Gateway]
+  COG[Cognito Hosted UI]
+  G[Google OAuth]
+  API[API Gateway HTTP API]
   L[Lambda Python 3.13]
-  DDB[DynamoDB Chat Table]
+  DDB[DynamoDB]
   SM[Secrets Manager]
   OAI[OpenAI API]
-  Cognito[Cognito Hosted UI]
-  Google[Google OAuth]
-  GHA[GitHub Actions]
-  TF[Terraform Apply]
 
-  User --> CF
+  U --> CF
   CF --> S3
-  User --> API
+
+  U --> COG
+  COG --> G
+  G --> COG
+  COG --> U
+
+  U --> API
   API --> L
   L --> DDB
   L --> SM
   L --> OAI
-
-  User --> Cognito
-  Cognito --> Google
-  Google --> Cognito
-  Cognito --> User
-
-  GHA --> TF
-  TF --> CF
-  TF --> S3
-  TF --> API
-  TF --> L
-  TF --> DDB
-  TF --> SM
-  TF --> Cognito
 ```
 
-## Google OAuth + Cognito Setup
+## Terraform Stack Layout
 
-This project uses Cognito Hosted UI and federates Google as an external identity provider.
+### Frontend Stack (`infra/frontend`)
 
-Production frontend base URL used for OAuth setup:
+Creates and maintains:
 
-- `https://d2znnfez52b22b.cloudfront.net`
+- S3 bucket + restrictive public access policy
+- CloudFront distribution + OAC + route rewrite function
+- Cognito user pool, Google identity provider, domain, app client
+- SSM parameters used by frontend deploy and backend auth setup
 
-In Google Cloud OAuth client settings:
+### Backend Stack (`infra/backend`)
 
-- Authorized redirect URIs:
-  - `https://<cognito-domain>/oauth2/idpresponse`
-- Authorized JavaScript origins:
-  - Not required for Cognito Hosted UI federation. Leave empty unless Google Console requires values.
+Creates and maintains:
 
-Example redirect URI for this project:
+- Lambda function + IAM role/policy + log group
+- API Gateway HTTP API + JWT authorizer + routes + stage
+- DynamoDB chat table
+- Secrets Manager secret metadata (secret value injected by CI)
+- SSM parameters for backend runtime/config lookup
 
-- `https://rcoauth2-auth.auth.ap-northeast-1.amazoncognito.com/oauth2/idpresponse`
+Backend Terraform guide for detailed planning and refactor notes:
 
-Frontend `.env.local` values are based on `frontend/.env.local.example`.
+- `infra/backend/README.md`
 
-## Authentication Flow
+## Cross-Stack Contracts (SSM)
 
-1. User opens `/login` and clicks `Continue with Google`.
-2. Frontend creates PKCE values (`code_verifier`, `code_challenge`) and `state` in `sessionStorage`.
-3. Browser is redirected to Cognito Hosted UI `/oauth2/authorize` with `identity_provider=Google`.
-4. User authenticates with Google.
-5. Cognito redirects browser to `/auth/callback?code=...&state=...` on CloudFront.
-6. Callback page validates `state`, then exchanges `code` at Cognito `/oauth2/token`.
-7. Frontend stores tokens (and expiry) in `sessionStorage`.
-8. Frontend redirects to `/` and renders authenticated user profile.
-9. Sign-out clears local session and redirects to Cognito `/logout`.
+Backend reads frontend-created Cognito values:
+
+- `/rcoauth2/frontend/cognito-user-pool-id`
+- `/rcoauth2/frontend/cognito-user-pool-client-id`
+
+Frontend deploy reads backend-created API value:
+
+- `/rcoauth2/backend/chat-api-url`
+
+Backend also writes:
+
+- `/rcoauth2/backend/openai-secret-arn`
+- `/rcoauth2/backend/chat-table-name`
+
+## Authentication Flow (Browser + Cognito + Google)
+
+Frontend implementation uses Authorization Code + PKCE in the browser.
+
+1. User opens `/login` and clicks Continue with Google.
+2. Frontend generates `code_verifier`, `code_challenge`, and `state`.
+3. Browser is redirected to Cognito `/oauth2/authorize` with `identity_provider=Google`.
+4. User completes Google auth; Cognito redirects to `/auth/callback?code=...&state=...`.
+5. Callback page verifies `state` from session storage.
+6. Frontend exchanges `code` at Cognito `/oauth2/token`.
+7. Frontend stores `id_token`, `access_token`, and expiry in `sessionStorage`.
+8. Frontend uses the `id_token` as `Authorization: Bearer ...` for chat API requests.
+9. Sign-out clears browser session and redirects to Cognito `/logout`.
 
 ```mermaid
 sequenceDiagram
   actor U as User
-  participant B as Browser App
+  participant FE as Frontend (Browser)
   participant C as Cognito Hosted UI
   participant G as Google OAuth
 
-  U->>B: Click Continue with Google
-  B->>B: Create PKCE + state in sessionStorage
-  B->>C: GET /oauth2/authorize
-  C->>G: Redirect for authentication
+  U->>FE: Click Continue with Google
+  FE->>FE: Generate PKCE + state
+  FE->>C: GET /oauth2/authorize
+  C->>G: Redirect for login
   G-->>C: User authenticated
-  C-->>B: Redirect /auth/callback?code&state
-  B->>B: Validate state
-  B->>C: POST /oauth2/token (code + verifier)
-  C-->>B: access_token + id_token
-  B->>B: Store session in sessionStorage
-  B-->>U: Redirect to home page
+  C-->>FE: Redirect /auth/callback?code&state
+  FE->>FE: Validate state
+  FE->>C: POST /oauth2/token (code + verifier)
+  C-->>FE: id_token + access_token
+  FE->>FE: Store session in sessionStorage
 ```
 
 ## Runtime Data Flow
 
-1. Browser requests app routes from CloudFront.
-2. CloudFront viewer-request function rewrites extensionless routes:
+### Frontend Runtime
 
-- `/auth/callback` -> `/auth/callback.html`
-- `/login` -> `/login.html`
+1. Browser loads static pages from CloudFront.
+2. CloudFront function rewrites extensionless routes, for example:
+   - `/login` -> `/login.html`
+   - `/auth/callback` -> `/auth/callback.html`
+3. CloudFront fetches objects from private S3 via OAC.
+4. 403/404 responses are mapped to `index.html` for SPA fallback.
+5. Frontend checks local session state:
+   - unauthenticated users are redirected to `/login`
+   - authenticated users can load sessions/messages
 
-1. CloudFront fetches static objects from S3 using OAC (private bucket access).
-2. For missing paths, CloudFront custom error response falls back to `index.html` for SPA behavior.
+### Backend Runtime
 
-## Build and Deploy Data Flow
+Routes:
 
-1. GitHub Actions `frontend.yml` Terraform job applies infra changes.
-2. Deploy job reads runtime config from SSM (distribution id, bucket, Cognito settings).
-3. Deploy job builds frontend with `NEXT_PUBLIC_*` auth environment variables.
-4. Workflow verifies callback export exists (`out/auth/callback.html`) before deploy.
-5. Workflow syncs `out/` to S3 and invalidates CloudFront cache.
+- `GET /chat/health` (public)
+- `GET /chat/sessions` (JWT required)
+- `GET /chat/sessions/{sessionId}` (JWT required)
+- `POST /chat/messages` (JWT required)
 
-```mermaid
-flowchart TD
-  Start[Push or workflow_dispatch] --> TFA[Terraform job]
-  TFA --> Infra[Update CloudFront S3 Cognito]
-  Infra --> ReadSSM[Read SSM parameters]
-  ReadSSM --> Build[Build frontend with NEXT_PUBLIC vars]
-  Build --> Verify[Verify out/auth/callback.html exists]
-  Verify --> Sync[Sync out/ to S3]
-  Sync --> Invalidate[Invalidate CloudFront cache]
-  Invalidate --> Done[Deployment complete]
-```
+Message request lifecycle (`POST /chat/messages`):
 
-## Configuration and Secrets Mapping
+1. Validate JWT and extract Cognito `sub`.
+2. Validate input (`message`, optional `sessionId`, max length).
+3. Create session when needed (title generated from first message).
+4. Save user message in DynamoDB.
+5. Load bounded message history and call OpenAI.
+6. Save assistant message.
+7. Update session metadata (`updatedAt`, preview, message count).
+8. Return updated session + both messages.
 
-### GitHub Secrets
+Data isolation model:
 
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_REGION`
-- `AWS_ACCOUNT_ID`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
+- Partition key: `USER#{sub}`
+- Session sort key: `SESS#{sessionId}`
+- Message sort key: `MSG#{sessionId}#{timestamp}#{messageId}`
 
-### Terraform Inputs
+This enforces per-user isolation by Cognito subject.
 
-- `google_client_id` <- `TF_VAR_google_client_id`
-- `google_client_secret` <- `TF_VAR_google_client_secret`
-- `frontend_base_url` currently defaults to CloudFront URL
+## CI/CD Data Flow
 
-### SSM Parameters Used by Deploy
+### Frontend Workflow (`.github/workflows/frontend.yml`)
 
-- `/rcoauth2/frontend/s3-bucket-name`
-- `/rcoauth2/frontend/cloudfront-distribution-id`
-- `/rcoauth2/frontend/cognito-user-pool-client-id`
-- `/rcoauth2/frontend/cognito-hosted-ui-domain`
+1. Terraform job applies frontend infrastructure.
+2. Deploy job reads SSM + CloudFront values.
+3. Build injects `NEXT_PUBLIC_*` auth and API variables.
+4. Verifies `out/auth/callback.html` exists.
+5. Syncs static export to S3.
+6. Invalidates CloudFront cache.
 
-### Build-time Frontend Env Vars
+### Backend Workflow (`.github/workflows/backend.yml`)
+
+1. Builds Lambda package (`backend/build.sh` -> `backend/dist/lambda.zip`).
+2. Runs Terraform init/fmt/validate/plan/apply in `infra/backend`.
+3. Reads backend SSM values (`chat-api-url`, `openai-secret-arn`).
+4. Updates secret value in Secrets Manager from `OPENAI_API_KEY`.
+5. Runs health endpoint smoke test.
+
+## Configuration Mapping
+
+### Frontend Build-Time Env Vars
 
 - `NEXT_PUBLIC_COGNITO_DOMAIN`
 - `NEXT_PUBLIC_COGNITO_CLIENT_ID`
@@ -237,18 +214,32 @@ flowchart TD
 - `NEXT_PUBLIC_COGNITO_LOGOUT_URI`
 - `NEXT_PUBLIC_CHAT_API_BASE_URL`
 
-## Backend CI/CD
+### Terraform Inputs
 
-Workflow: `.github/workflows/backend.yml`
+- Frontend: `google_client_id`, `google_client_secret`
+- Backend: `project_prefix`, `frontend_base_url`, `frontend_local_base_url`, `openai_model`
 
-1. Builds Lambda package from `backend/` using Python 3.13.
-2. Applies Terraform in `infra/backend/`.
-3. Reads backend outputs from SSM.
-4. Updates Secrets Manager value from GitHub Actions secret `OPENAI_API_KEY`.
-5. Runs a health endpoint smoke test.
+## Local Development Notes
+
+### Frontend
+
+```bash
+pnpm dev
+```
+
+### Backend Terraform Validate Pitfall
+
+`terraform validate` for `infra/backend` will fail if Lambda zip is missing because `filebase64sha256` reads:
+
+- `../../backend/dist/lambda.zip`
+
+Build it first:
+
+```bash
+chmod +x backend/build.sh
+./backend/build.sh
+```
 
 ## Route53
 
-```text
-Not in use for now (using CloudFront URL directly)
-```
+Route53/custom domain is not in use currently (CloudFront domain is used directly).
