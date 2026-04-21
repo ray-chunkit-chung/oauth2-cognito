@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: frontend-deploy
+  group: fullstack-deploy
   cancel-in-progress: false
 
 permissions:
