@@ -112,6 +112,16 @@ jobs:
           NEXT_PUBLIC_COGNITO_LOGOUT_URI: ${{ steps.config.outputs.frontend_base_url }}
         run: pnpm build
 
+      - name: Verify callback export exists
+        working-directory: frontend
+        run: |
+          if [ ! -f "out/auth/callback.html" ]; then
+            echo "Missing static export: out/auth/callback.html"
+            echo "Build output top-level files:"
+            ls -la out
+            exit 1
+          fi
+
       - name: Deploy to S3
         working-directory: frontend
         run: aws s3 sync out/ s3://${{ steps.config.outputs.s3_bucket }} --delete
