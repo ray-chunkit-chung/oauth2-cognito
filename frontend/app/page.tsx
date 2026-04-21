@@ -7,10 +7,18 @@ import { useAuth, signOut } from "@/hooks/use-auth";
 import {
   ChatMessage,
   ChatSession,
+  deleteChatSession,
   getChatSession,
   listChatSessions,
   postChatMessage,
 } from "@/lib/chat-api";
+
+function sortSessionsByUpdatedAt(a: ChatSession, b: ChatSession): number {
+  if (a.updatedAt === b.updatedAt) {
+    return 0;
+  }
+  return a.updatedAt > b.updatedAt ? -1 : 1;
+}
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -43,6 +51,9 @@ export default function Home() {
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isDeletingSessionId, setIsDeletingSessionId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const isChatConfigured = Boolean(
@@ -50,13 +61,7 @@ export default function Home() {
   );
 
   const orderedSessions = useMemo(
-    () =>
-      [...sessions].sort((a, b) => {
-        if (a.updatedAt === b.updatedAt) {
-          return 0;
-        }
-        return a.updatedAt > b.updatedAt ? -1 : 1;
-      }),
+    () => [...sessions].sort(sortSessionsByUpdatedAt),
     [sessions],
   );
 
@@ -221,6 +226,45 @@ export default function Home() {
     setError(null);
   }
 
+  async function handleDeleteSession(sessionId: string) {
+    if (isDeletingSessionId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete this chat history? This action cannot be undone.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setError(null);
+    setIsDeletingSessionId(sessionId);
+
+    try {
+      await deleteChatSession(sessionId);
+
+      const refreshed = await listChatSessions();
+      setSessions(refreshed.sessions);
+      setActiveSessionId((prev) => {
+        if (prev && refreshed.sessions.some((session) => session.id === prev)) {
+          return prev;
+        }
+
+        const next = [...refreshed.sessions].sort(sortSessionsByUpdatedAt)[0];
+        return next ? next.id : null;
+      });
+
+      if (activeSessionId === sessionId) {
+        setMessages([]);
+      }
+    } catch (deleteError) {
+      setError(toErrorMessage(deleteError));
+    } finally {
+      setIsDeletingSessionId(null);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900 px-6 text-slate-100">
@@ -291,23 +335,40 @@ export default function Home() {
               )}
 
               {orderedSessions.map((session) => (
-                <button
+                <div
                   key={session.id}
-                  type="button"
-                  onClick={() => setActiveSessionId(session.id)}
-                  className={`w-full rounded-xl border p-3 text-left transition-colors ${
+                  className={`w-full rounded-xl border p-3 transition-colors ${
                     session.id === activeSessionId
                       ? "border-cyan-500/60 bg-cyan-500/15"
                       : "border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900"
                   }`}
                 >
-                  <p className="line-clamp-2 text-sm font-medium text-slate-100">
-                    {session.title}
-                  </p>
-                  <p className="mt-1 line-clamp-1 text-xs text-slate-400">
-                    {session.lastMessagePreview || "No assistant reply yet"}
-                  </p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSessionId(session.id)}
+                    className="w-full text-left"
+                  >
+                    <p className="line-clamp-2 text-sm font-medium text-slate-100">
+                      {session.title}
+                    </p>
+                    <p className="mt-1 line-clamp-1 text-xs text-slate-400">
+                      {session.lastMessagePreview || "No assistant reply yet"}
+                    </p>
+                  </button>
+
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteSession(session.id)}
+                      disabled={isDeletingSessionId !== null}
+                      className="rounded-md border border-rose-500/40 bg-rose-900/20 px-2 py-1 text-[11px] font-medium text-rose-200 transition-colors hover:bg-rose-900/40 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isDeletingSessionId === session.id
+                        ? "Deleting..."
+                        : "Delete"}
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           </aside>

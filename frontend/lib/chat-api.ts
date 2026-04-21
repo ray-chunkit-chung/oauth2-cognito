@@ -33,6 +33,11 @@ interface PostMessageResponse {
   assistantMessage: ChatMessage;
 }
 
+interface DeleteSessionResponse {
+  sessionId: string;
+  deletedMessageCount: number;
+}
+
 const CHAT_API_BASE_URL = process.env.NEXT_PUBLIC_CHAT_API_BASE_URL ?? "";
 
 function ensureApiBaseUrl(): string {
@@ -102,5 +107,13 @@ export function postChatMessage(input: {
   return request<PostMessageResponse>("/chat/messages", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function deleteChatSession(
+  sessionId: string,
+): Promise<DeleteSessionResponse> {
+  return request<DeleteSessionResponse>(`/chat/sessions/${sessionId}`, {
+    method: "DELETE",
   });
 }

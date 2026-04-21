@@ -1,7 +1,7 @@
 # locals are reusable values to avoid repeating the same string in many resources.
 locals {
   # Lambda deployment package built by backend/build.sh.
-  lambda_zip_path    = "${path.module}/../../backend/dist/lambda.zip"
+  lambda_zip_path = "${path.module}/../../backend/dist/lambda.zip"
   # Secret name only. CI/CD writes the actual API key value later.
   openai_secret_name = "${var.project_prefix}/backend/openai-api-key"
 
@@ -92,6 +92,8 @@ resource "aws_iam_role_policy" "chat_lambda" {
         Sid    = "ChatTableAccess"
         Effect = "Allow"
         Action = [
+          "dynamodb:BatchWriteItem",
+          "dynamodb:DeleteItem",
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:Query",
@@ -154,19 +156,19 @@ resource "aws_apigatewayv2_api" "chat" {
     # Frontend origins allowed by browsers to call this API.
     allow_origins = local.frontend_allowed_origins
     # HTTP methods browsers can use for cross-origin requests.
-    allow_methods = ["GET", "POST", "OPTIONS"]
+    allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
     # Request headers browsers are allowed to send.
     allow_headers = ["authorization", "content-type"]
     # Cache preflight (OPTIONS) response for 1 hour to reduce repeated checks.
-    max_age       = 3600
+    max_age = 3600
   }
 }
 
 resource "aws_apigatewayv2_authorizer" "cognito" {
   # Verifies Cognito JWTs before API Gateway forwards protected requests to Lambda.
-  api_id           = aws_apigatewayv2_api.chat.id
-  name             = "${var.project_prefix}-cognito-jwt"
-  authorizer_type  = "JWT"
+  api_id          = aws_apigatewayv2_api.chat.id
+  name            = "${var.project_prefix}-cognito-jwt"
+  authorizer_type = "JWT"
   # Read token from Authorization header (Bearer <token>).
   identity_sources = ["$request.header.Authorization"]
 
@@ -174,7 +176,7 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
     # Token must be issued for this app client (aud claim).
     audience = [data.aws_ssm_parameter.cognito_user_pool_client_id.value]
     # Token must come from this Cognito user pool (iss claim).
-    issuer   = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${data.aws_ssm_parameter.cognito_user_pool_id.value}"
+    issuer = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${data.aws_ssm_parameter.cognito_user_pool_id.value}"
   }
 }
 
@@ -212,6 +214,16 @@ resource "aws_apigatewayv2_route" "get_session" {
   # JWT is required, and Lambda should enforce that the session belongs to this user.
   api_id             = aws_apigatewayv2_api.chat.id
   route_key          = "GET /chat/sessions/{sessionId}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+  target             = "integrations/${aws_apigatewayv2_integration.chat_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "delete_session" {
+  # Deletes one chat session and all messages under that session.
+  # JWT is required so users can only delete their own chat history.
+  api_id             = aws_apigatewayv2_api.chat.id
+  route_key          = "DELETE /chat/sessions/{sessionId}"
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
   target             = "integrations/${aws_apigatewayv2_integration.chat_lambda.id}"

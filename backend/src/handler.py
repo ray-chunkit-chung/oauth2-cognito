@@ -233,6 +233,49 @@ def _list_session_messages(user_sub: str, session_id: str) -> dict[str, Any]:
     }
 
 
+def _query_session_message_keys(user_sub: str, session_id: str) -> list[dict[str, str]]:
+    keys: list[dict[str, str]] = []
+    exclusive_start_key: dict[str, Any] | None = None
+
+    while True:
+        query_args: dict[str, Any] = {
+            "KeyConditionExpression": Key("pk").eq(_user_pk(user_sub))
+            & Key("sk").begins_with(f"MSG#{session_id}#"),
+            "ProjectionExpression": "pk, sk",
+        }
+        if exclusive_start_key:
+            query_args["ExclusiveStartKey"] = exclusive_start_key
+
+        response = TABLE.query(**query_args)
+        for item in response.get("Items", []):
+            pk = _as_str(item.get("pk"))
+            sk = _as_str(item.get("sk"))
+            if pk and sk:
+                keys.append({"pk": pk, "sk": sk})
+
+        exclusive_start_key = response.get("LastEvaluatedKey")
+        if not exclusive_start_key:
+            break
+
+    return keys
+
+
+def _delete_session(user_sub: str, session_id: str) -> dict[str, Any]:
+    _get_session_item(user_sub, session_id)
+    message_keys = _query_session_message_keys(user_sub, session_id)
+
+    with TABLE.batch_writer() as batch:
+        for key in message_keys:
+            batch.delete_item(Key=key)
+
+        batch.delete_item(Key={"pk": _user_pk(user_sub), "sk": _session_sk(session_id)})
+
+    return {
+        "sessionId": session_id,
+        "deletedMessageCount": len(message_keys),
+    }
+
+
 def _create_session(user_sub: str, first_message: str) -> dict[str, Any]:
     session_id = str(uuid.uuid4())
     now_iso = _now_iso()
@@ -399,6 +442,14 @@ def _post_message(user_sub: str, event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _read_session_id_path_parameter(event: dict[str, Any]) -> str:
+    path_parameters = event.get("pathParameters", {})
+    session_id = path_parameters.get("sessionId")
+    if not isinstance(session_id, str) or not session_id:
+        raise ApiError(400, "sessionId path parameter is required")
+    return session_id
+
+
 def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     route_key = event.get("routeKey", "")
 
@@ -412,11 +463,12 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             return _json_response(200, _list_sessions(user_sub))
 
         if route_key == "GET /chat/sessions/{sessionId}":
-            path_parameters = event.get("pathParameters", {})
-            session_id = path_parameters.get("sessionId")
-            if not isinstance(session_id, str) or not session_id:
-                raise ApiError(400, "sessionId path parameter is required")
+            session_id = _read_session_id_path_parameter(event)
             return _json_response(200, _list_session_messages(user_sub, session_id))
+
+        if route_key == "DELETE /chat/sessions/{sessionId}":
+            session_id = _read_session_id_path_parameter(event)
+            return _json_response(200, _delete_session(user_sub, session_id))
 
         if route_key == "POST /chat/messages":
             response = _post_message(user_sub, event)
