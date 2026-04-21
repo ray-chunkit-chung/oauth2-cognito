@@ -104,3 +104,16 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.ssm.outputs.distribution_id }}" \
             --paths "/*"
+
+      - name: Deployment Summary
+        if: ${{ success() }}
+        run: |
+          CF_DOMAIN=$(aws cloudfront get-distribution --id "${{ steps.ssm.outputs.distribution_id }}" --query "Distribution.DomainName" --output text)
+          echo "## Frontend Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| S3 Bucket | \`${{ steps.ssm.outputs.s3_bucket }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CloudFront Distribution ID | \`${{ steps.ssm.outputs.distribution_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CloudFront URL | [https://$CF_DOMAIN](https://$CF_DOMAIN) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CloudFront Console | [Open distribution](https://console.aws.amazon.com/cloudfront/v4/home#/distributions/${{ steps.ssm.outputs.distribution_id }}) |" >> "$GITHUB_STEP_SUMMARY"
