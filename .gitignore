@@ -1,3 +1,4 @@
 .env
 local/
 infra/backend/.terraform/terraform.tfstate
+.terraform/
