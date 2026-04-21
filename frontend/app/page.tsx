@@ -231,13 +231,6 @@ export default function Home() {
       return;
     }
 
-    const confirmed = window.confirm(
-      "Delete this chat history? This action cannot be undone.",
-    );
-    if (!confirmed) {
-      return;
-    }
-
     setError(null);
     setIsDeletingSessionId(sessionId);
 
