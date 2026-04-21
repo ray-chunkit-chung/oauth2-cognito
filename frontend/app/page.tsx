@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth, signOut } from "@/hooks/use-auth";
@@ -208,6 +208,13 @@ export default function Home() {
     }
   }
 
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && event.shiftKey) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+    }
+  }
+
   function startNewChat() {
     setActiveSessionId(null);
     setMessages([]);
@@ -387,6 +394,7 @@ export default function Home() {
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={handleDraftKeyDown}
                   placeholder="Type your question"
                   rows={2}
                   className="min-h-[52px] flex-1 resize-y rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-cyan-400 placeholder:text-slate-500 focus:ring"
@@ -401,6 +409,9 @@ export default function Home() {
                   {isSending ? "Sending..." : "Send"}
                 </button>
               </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Enter adds a new line. Shift+Enter sends your message.
+              </p>
             </form>
           </section>
         </div>
