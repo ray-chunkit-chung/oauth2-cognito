@@ -20,8 +20,11 @@ import {
   postChatMessage,
 } from "@/lib/chat-api";
 
+// Prefixes for optimistic (temporary) message IDs created before the API reply arrives.
+// We use separate prefixes so we can identify and replace/remove placeholders reliably.
 const TEMP_USER_MESSAGE_PREFIX = "temp-user-";
 const TEMP_ASSISTANT_MESSAGE_PREFIX = "temp-assistant-";
+// Wait briefly before showing the "slow" hint so normal fast replies stay clean.
 const SLOW_SEND_HINT_DELAY_MS = 1500;
 
 function sortSessionsByUpdatedAt(a: ChatSession, b: ChatSession): number {
@@ -81,6 +84,7 @@ export default function Home() {
   );
 
   useEffect(() => {
+    // Keep users at /login unless we have a valid local auth session.
     if (!isLoading && !isAuthenticated) {
       router.replace("/login");
     }
@@ -104,6 +108,7 @@ export default function Home() {
         }
 
         setSessions(response.sessions);
+        // Preserve the selected chat when possible; otherwise choose the newest one.
         setActiveSessionId((prev) => {
           if (
             prev &&
@@ -197,6 +202,8 @@ export default function Home() {
       return;
     }
 
+    // Auto-scroll only when a new assistant reply arrives.
+    // This avoids fighting the user when they scroll chat history manually.
     messagesEndRef.current?.scrollIntoView({
       behavior: "smooth",
       block: "end",
@@ -216,6 +223,8 @@ export default function Home() {
       clearTimeout(slowSendTimerRef.current);
     }
 
+    // If sending takes longer than expected (cold start/network/model),
+    // surface a small hint so users know the app is still working.
     slowSendTimerRef.current = setTimeout(() => {
       setShowSlowSendHint(true);
     }, SLOW_SEND_HINT_DELAY_MS);
@@ -236,6 +245,8 @@ export default function Home() {
       return;
     }
 
+    // Use one request id so temporary user+assistant placeholders can be
+    // removed/replaced together when the API call completes.
     const requestId = Date.now();
 
     const optimisticUserMessage: ChatMessage = {
@@ -255,6 +266,8 @@ export default function Home() {
     setError(null);
     setShowSlowSendHint(false);
     setIsSending(true);
+    // Optimistic UI: show the user message immediately and add a temporary
+    // assistant bubble so the thread never looks idle.
     setMessages((prev) => [
       ...prev,
       optimisticUserMessage,
@@ -268,6 +281,7 @@ export default function Home() {
       });
 
       setActiveSessionId(response.session.id);
+      // Replace temporary placeholders with server-confirmed messages.
       setMessages((prev) => [
         ...prev.filter(
           (item) =>
@@ -284,6 +298,7 @@ export default function Home() {
         return [response.session, ...withoutCurrent];
       });
     } catch (sendError) {
+      // Roll back optimistic entries and restore the draft for quick retry.
       setMessages((prev) =>
         prev.filter(
           (item) =>
@@ -300,6 +315,7 @@ export default function Home() {
   }
 
   function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Chat-style shortcut: Shift+Enter sends, Enter inserts a newline.
     if (event.key === "Enter" && event.shiftKey) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -402,6 +418,7 @@ export default function Home() {
 
             <div className="space-y-2 overflow-y-auto pr-1">
               {isLoadingSessions && (
+                // Skeletons keep layout stable while chat sessions load.
                 <div className="space-y-2 px-1" aria-hidden="true">
                   {[0, 1, 2, 3].map((index) => (
                     <div
@@ -490,6 +507,7 @@ export default function Home() {
 
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
               {isLoadingMessages && (
+                // Message skeletons mimic conversation rhythm during fetch.
                 <div className="space-y-3" aria-hidden="true">
                   <div className="skeleton-shimmer h-16 w-[72%] rounded-2xl border border-slate-800 bg-slate-900/70" />
                   <div className="skeleton-shimmer ml-auto h-14 w-[55%] rounded-2xl border border-slate-700 bg-cyan-500/20" />
@@ -505,6 +523,7 @@ export default function Home() {
 
               {messages.map((message) => {
                 const isUser = message.role === "user";
+                // A temp assistant message has no content and shows typing dots.
                 const isPendingAssistant =
                   !isUser &&
                   message.id.startsWith(TEMP_ASSISTANT_MESSAGE_PREFIX) &&
