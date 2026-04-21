@@ -1,6 +1,13 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth, signOut } from "@/hooks/use-auth";
@@ -55,6 +62,8 @@ export default function Home() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const lastAssistantMessageIdRef = useRef<string | null>(null);
 
   const isChatConfigured = Boolean(
     (process.env.NEXT_PUBLIC_CHAT_API_BASE_URL ?? "").trim(),
@@ -163,6 +172,30 @@ export default function Home() {
       cancelled = true;
     };
   }, [activeSessionId, isAuthenticated, isChatConfigured, isLoading]);
+
+  useEffect(() => {
+    const lastAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+
+    if (!lastAssistantMessage) {
+      lastAssistantMessageIdRef.current = null;
+      return;
+    }
+
+    const hasNewAssistantMessage =
+      lastAssistantMessage.id !== lastAssistantMessageIdRef.current;
+    lastAssistantMessageIdRef.current = lastAssistantMessage.id;
+
+    if (!hasNewAssistantMessage) {
+      return;
+    }
+
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+  }, [messages]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -432,6 +465,8 @@ export default function Home() {
                   </article>
                 );
               })}
+
+              <div ref={messagesEndRef} />
             </div>
 
             {error && (
