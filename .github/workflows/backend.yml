@@ -52,30 +52,7 @@ jobs:
         run: terraform init
 
       - name: Terraform Format Check
-        id: fmt_check
-        continue-on-error: true
-        run: terraform fmt -check -diff -recursive
-
-      - name: Terraform Format Diagnostics
-        if: always()
-        run: |
-          echo "fmt_check outcome: ${{ steps.fmt_check.outcome }}"
-          echo "fmt_check conclusion: ${{ steps.fmt_check.conclusion }}"
-          terraform version
-          echo "Working directory: $(pwd)"
-          echo "Terraform files in current module:"
-          find . -maxdepth 2 -type f -name "*.tf" -print
-
-          if [ "${{ steps.fmt_check.outcome }}" != "success" ]; then
-            echo "Formatting diff from git for backend module:"
-            git --no-pager diff -- . || true
-          fi
-
-      - name: Fail if Terraform format check failed
-        if: steps.fmt_check.outcome != 'success'
-        run: |
-          echo "Terraform formatting check failed in infra/backend."
-          exit 1
+        run: terraform fmt -check
 
       - name: Terraform Validate
         run: terraform validate
