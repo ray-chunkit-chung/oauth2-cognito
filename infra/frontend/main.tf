@@ -25,6 +25,34 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
 }
 
 # ------------------------------------------------------------------------------
+# CloudFront Function — map extensionless routes to static export files
+# ------------------------------------------------------------------------------
+resource "aws_cloudfront_function" "frontend_rewrite" {
+  name    = "${var.project_prefix}-frontend-rewrite"
+  runtime = "cloudfront-js-2.0"
+  comment = "Rewrite extensionless paths to static export HTML files"
+  publish = true
+
+  code = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      var uri = request.uri;
+
+      if (uri.endsWith('/')) {
+        request.uri = uri + 'index.html';
+        return request;
+      }
+
+      if (uri.indexOf('.') === -1) {
+        request.uri = uri + '.html';
+      }
+
+      return request;
+    }
+  EOT
+}
+
+# ------------------------------------------------------------------------------
 # CloudFront Distribution
 # ------------------------------------------------------------------------------
 resource "aws_cloudfront_distribution" "frontend" {
@@ -46,6 +74,11 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress               = true
 
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed CachingOptimized
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.frontend_rewrite.arn
+    }
   }
 
   # SPA fallback — serve index.html for client-side routing
