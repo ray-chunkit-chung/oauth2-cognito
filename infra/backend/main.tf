@@ -15,11 +15,13 @@ locals {
 
 data "aws_ssm_parameter" "cognito_user_pool_id" {
   # User pool ID from frontend stack.
+  # Keeps backend auth config aligned with frontend-managed Cognito resources.
   name = "/${var.project_prefix}/frontend/cognito-user-pool-id"
 }
 
 data "aws_ssm_parameter" "cognito_user_pool_client_id" {
   # App client ID used as JWT audience.
+  # Read from SSM so stacks stay loosely coupled.
   name = "/${var.project_prefix}/frontend/cognito-user-pool-client-id"
 }
 
@@ -31,12 +33,14 @@ resource "aws_secretsmanager_secret" "openai_api_key" {
   # Stores metadata for the OpenAI key. Secret value is managed outside Terraform.
   name                    = local.openai_secret_name
   description             = "OpenAI API key for ${var.project_prefix} backend"
+  # Immediate destroy in ephemeral/test environments; no recovery window.
   recovery_window_in_days = 0
 }
 
 resource "aws_dynamodb_table" "chat" {
   # Simple single-table design: pk/sk stores sessions and messages.
   name         = "${var.project_prefix}-chat"
+  # On-demand capacity avoids provisioning and handles bursty chat traffic.
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
   range_key    = "sk"
@@ -117,12 +121,16 @@ resource "aws_lambda_function" "chat_api" {
   # The API runtime: API Gateway forwards all chat routes to this function.
   function_name = "${var.project_prefix}-chat-api"
   role          = aws_iam_role.chat_lambda.arn
+  # Python 3.13 for current runtime support and performance improvements.
   runtime       = "python3.13"
   handler       = "handler.lambda_handler"
+  # 30s covers model/network latency without keeping requests open too long.
   timeout       = 30
+  # 1024 MB gives better CPU share for lower inference/serialization latency.
   memory_size   = 1024
 
   filename         = local.lambda_zip_path
+  # Forces deployment update when build artifact content changes.
   source_code_hash = filebase64sha256(local.lambda_zip_path)
 
   environment {
@@ -186,6 +194,7 @@ resource "aws_apigatewayv2_integration" "chat_lambda" {
   api_id                 = aws_apigatewayv2_api.chat.id
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.chat_api.invoke_arn
+  # HTTP API v2 event shape keeps request context compact and consistent.
   payload_format_version = "2.0"
 }
 
@@ -243,6 +252,7 @@ resource "aws_apigatewayv2_stage" "default" {
   # $default stage means the invoke URL has no extra stage path segment.
   api_id      = aws_apigatewayv2_api.chat.id
   name        = "$default"
+  # Auto-publish route/integration changes without manual stage deployments.
   auto_deploy = true
 }
 
@@ -252,6 +262,7 @@ resource "aws_lambda_permission" "allow_apigw" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.chat_api.function_name
   principal     = "apigateway.amazonaws.com"
+  # Scope invoke rights to this API across all methods/routes/stages.
   source_arn    = "${aws_apigatewayv2_api.chat.execution_arn}/*/*"
 }
 
@@ -272,6 +283,7 @@ resource "aws_cloudwatch_event_target" "lambda_warmup" {
   arn       = aws_lambda_function.chat_api.arn
 
   input = jsonencode({
+    # Reuses lightweight health route path in Lambda routing logic.
     routeKey = "GET /chat/health"
   })
 }
@@ -283,6 +295,7 @@ resource "aws_lambda_permission" "allow_eventbridge_warmup" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.chat_api.function_name
   principal     = "events.amazonaws.com"
+  # Restrict warmup invoke permission to the single scheduled rule.
   source_arn    = aws_cloudwatch_event_rule.lambda_warmup[0].arn
 }
 
