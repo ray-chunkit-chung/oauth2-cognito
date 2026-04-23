@@ -1,62 +1,89 @@
+# Custom Domain Plan (Approved)
 
-**Group 1: Domain Prerequisites (No Traffic Changes)**
+## Final decisions
 
-1. Confirm DNS ownership and where records are managed.
-2. Confirm hosted zone exists for ray-chunkit-chung.click.
-3. Confirm frontend cert must be in us-east-1 (CloudFront requirement) and API cert in your API region.
-4. Verification gate: you can create DNS records and ACM certificates in the right accounts/regions.
+1. Frontend canonical URL is <https://www.ray-chunkit-chung.click>.
+2. Apex ray-chunkit-chung.click redirects to www with HTTP 301.
+3. Backend canonical API URL is <https://api.ray-chunkit-chung.click>.
+4. No rollback window.
+5. New domains are strict and legacy endpoints are disabled.
+6. Keep implementation simple, minimal, and modular.
 
-**Group 2: Frontend TLS Certificate Only**
+## Phase 1: Prerequisites
 
-1. Create ACM certificate for <www.ray-chunkit-chung.click> in us-east-1.
-2. Create DNS validation record(s).
-3. Wait for certificate status Issued.
-4. Verification gate: cert is issued, but CloudFront still serves old default domain.
+1. Confirm Route53 hosted zone exists for ray-chunkit-chung.click in the same AWS account.
+2. Confirm frontend certificate region is us-east-1 (CloudFront requirement).
+3. Confirm backend certificate region matches API Gateway region.
+4. Verification gate: ACM and Route53 permissions are available in this account.
 
-**Group 3: Frontend Domain Cutover**
+## Phase 2: Frontend domain and apex redirect
 
-1. Add <www.ray-chunkit-chung.click> as CloudFront alternate domain.
-2. Attach the new ACM certificate to CloudFront.
-3. Create DNS alias record www -> CloudFront.
+1. Request ACM certificate in us-east-1 for:
+ 1. <www.ray-chunkit-chung.click>
+ 2. ray-chunkit-chung.click
+2. Create DNS validation records in Route53 and wait for Issued.
+3. Update CloudFront distribution:
+ 1. Add aliases for www and apex.
+ 2. Attach ACM certificate from us-east-1.
+4. Add Route53 alias records:
+ 1. www -> CloudFront
+ 2. apex -> CloudFront
+5. Update CloudFront Function logic:
+ 1. If host is apex, return 301 redirect to www.
+ 2. Allow only apex and www hosts.
+ 3. Reject other hosts, including default cloudfront.net host.
+6. Verification gate:
+ 1. <https://www.ray-chunkit-chung.click> loads the app.
+ 2. <https://ray-chunkit-chung.click> redirects to www.
+ 3. CloudFront default hostname no longer serves the app.
+
+## Phase 3: Auth alignment to canonical frontend
+
+1. Set frontend_base_url to <https://www.ray-chunkit-chung.click>.
+2. Ensure Cognito callback and logout URLs use canonical www URL.
+3. Ensure frontend build env values use canonical www URL.
 4. Verification gate:
-5. <https://www.ray-chunkit-chung.click> loads frontend.
-6. Browser TLS certificate is valid.
-7. Existing default CloudFront domain can still be kept as fallback temporarily.
+ 1. Login starts on www.
+ 2. Callback returns to /auth/callback on www.
+ 3. Logout returns to www.
 
-**Group 4: Auth URL Alignment**
+## Phase 4: API custom domain
 
-1. Change frontend base URL configuration to <https://www.ray-chunkit-chung.click>.
-2. Update Cognito app client callback/logout URLs to use www domain.
-3. Update CI build inputs so frontend uses www URL for redirect/logout.
+1. Request ACM certificate in API region for api.ray-chunkit-chung.click.
+2. Create DNS validation records in Route53 and wait for Issued.
+3. Create API Gateway custom domain.
+4. Map custom domain to existing HTTP API $default stage.
+5. Create Route53 alias:
+ 1. api -> API Gateway custom domain target.
+6. Publish API base URL in SSM as <https://api.ray-chunkit-chung.click>.
+7. Verification gate:
+ 1. <https://api.ray-chunkit-chung.click/chat/health> returns 200.
+
+## Phase 5: Strict legacy endpoint disablement
+
+1. Disable API Gateway default execute-api endpoint.
+2. Keep CloudFront host allowlist enforcement so default cloudfront.net host is blocked.
+3. Remove legacy endpoint references from workflow summaries and docs.
 4. Verification gate:
-5. Login starts from www.
-6. Callback returns to /auth/callback on www.
-7. Logout returns to www home.
+ 1. execute-api endpoint is inaccessible.
+ 2. cloudfront.net hostname is blocked.
+ 3. Only www and api custom domains are active.
 
-**Group 5: API TLS Certificate and Custom Domain**
+## Phase 6: Minimal CI/CD adjustments
 
-1. Create ACM certificate for api.ray-chunkit-chung.click in API region.
-2. Create DNS validation record(s).
-3. Create API Gateway custom domain and map it to existing $default stage.
-4. Create DNS alias api -> API Gateway custom domain.
-5. Verification gate:
-6. <https://api.ray-chunkit-chung.click/chat/health> returns 200.
-7. Old execute-api URL still works during transition.
-
-**Group 6: API URL and CORS Finalization**
-
-1. Publish API base URL as <https://api.ray-chunkit-chung.click> in shared config/SSM.
-2. Ensure backend CORS allow-origin includes <https://www.ray-chunkit-chung.click>.
-3. Redeploy frontend so browser calls new api domain.
+1. Keep SSM as single source of truth for runtime URLs.
+2. Frontend workflow reads canonical frontend URL and canonical API URL from SSM.
+3. Frontend build uses only:
+ 1. NEXT_PUBLIC_COGNITO_REDIRECT_URI = <https://www.ray-chunkit-chung.click/auth/callback>
+ 2. NEXT_PUBLIC_COGNITO_LOGOUT_URI = <https://www.ray-chunkit-chung.click>
+ 3. NEXT_PUBLIC_CHAT_API_BASE_URL = <https://api.ray-chunkit-chung.click>
 4. Verification gate:
-5. Chat works end-to-end from www to api.
-6. No CORS errors in browser devtools.
+ 1. Frontend deployment works with no CloudFront default URL dependency.
+ 2. Chat works end-to-end via www -> api.
 
-**Group 7: Stabilization and Cleanup**
+## Phase 7: Done criteria
 
-1. Keep old endpoints for a short observation window.
-2. Monitor auth and API logs for errors.
-3. Optionally remove temporary fallback references after stable period.
-4. Verification gate: no auth/API regressions over agreed observation period.
-
-If you want, I can next turn this into an execution checklist with exact “apply + verify” commands per group so you can run each gate one by one.
+1. Only custom domains are reachable for end users.
+2. OAuth works only on canonical www origin.
+3. API traffic flows only through api.ray-chunkit-chung.click.
+4. Docs and workflows no longer guide users to legacy endpoints.
