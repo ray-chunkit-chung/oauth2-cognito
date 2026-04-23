@@ -293,6 +293,13 @@ resource "aws_ssm_parameter" "s3_bucket_name" {
   value = aws_s3_bucket.frontend.id
 }
 
+resource "aws_ssm_parameter" "frontend_base_url" {
+  # Canonical frontend URL for auth redirects and frontend build configuration.
+  name  = "/${var.project_prefix}/frontend/frontend-base-url"
+  type  = "String"
+  value = var.frontend_base_url
+}
+
 resource "aws_ssm_parameter" "cognito_user_pool_id" {
   # Exposed for frontend config generation during deployment.
   name  = "/${var.project_prefix}/frontend/cognito-user-pool-id"

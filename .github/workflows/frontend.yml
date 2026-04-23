@@ -89,14 +89,14 @@ jobs:
         run: |
           DIST_ID=$(aws ssm get-parameter --name /rcoauth2/frontend/cloudfront-distribution-id --query Parameter.Value --output text)
           S3_BUCKET=$(aws ssm get-parameter --name /rcoauth2/frontend/s3-bucket-name --query Parameter.Value --output text)
+          FRONTEND_BASE_URL=$(aws ssm get-parameter --name /rcoauth2/frontend/frontend-base-url --query Parameter.Value --output text)
           COGNITO_CLIENT_ID=$(aws ssm get-parameter --name /rcoauth2/frontend/cognito-user-pool-client-id --query Parameter.Value --output text)
           COGNITO_DOMAIN_PREFIX=$(aws ssm get-parameter --name /rcoauth2/frontend/cognito-hosted-ui-domain --query Parameter.Value --output text)
           CHAT_API_URL=$(aws ssm get-parameter --name /rcoauth2/backend/chat-api-url --query Parameter.Value --output text)
-          CF_DOMAIN=$(aws cloudfront get-distribution --id "$DIST_ID" --query "Distribution.DomainName" --output text)
 
           echo "distribution_id=$DIST_ID" >> "$GITHUB_OUTPUT"
           echo "s3_bucket=$S3_BUCKET" >> "$GITHUB_OUTPUT"
-          echo "frontend_base_url=https://$CF_DOMAIN" >> "$GITHUB_OUTPUT"
+          echo "frontend_base_url=$FRONTEND_BASE_URL" >> "$GITHUB_OUTPUT"
           echo "cognito_client_id=$COGNITO_CLIENT_ID" >> "$GITHUB_OUTPUT"
           echo "cognito_domain=${COGNITO_DOMAIN_PREFIX}.auth.${{ secrets.AWS_REGION }}.amazoncognito.com" >> "$GITHUB_OUTPUT"
           echo "chat_api_url=$CHAT_API_URL" >> "$GITHUB_OUTPUT"
@@ -144,5 +144,5 @@ jobs:
           echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           echo "| S3 Bucket | \`${{ steps.config.outputs.s3_bucket }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| CloudFront Distribution ID | \`${{ steps.config.outputs.distribution_id }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| CloudFront URL | [${{ steps.config.outputs.frontend_base_url }}](${{ steps.config.outputs.frontend_base_url }}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Frontend URL | [${{ steps.config.outputs.frontend_base_url }}](${{ steps.config.outputs.frontend_base_url }}) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| CloudFront Console | [Open distribution](https://console.aws.amazon.com/cloudfront/v4/home#/distributions/${{ steps.config.outputs.distribution_id }}) |" >> "$GITHUB_STEP_SUMMARY"

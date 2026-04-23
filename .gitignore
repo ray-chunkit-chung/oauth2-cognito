@@ -2,3 +2,4 @@
 local/
 infra/backend/.terraform/terraform.tfstate
 .terraform/
+infra/frontend/test_validate/.terraform.lock.hcl

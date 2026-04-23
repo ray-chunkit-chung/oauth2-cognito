@@ -7,7 +7,7 @@ variable "project_prefix" {
 variable "frontend_base_url" {
   description = "Production frontend URL"
   type        = string
-  default     = "https://d2znnfez52b22b.cloudfront.net"
+  default     = "https://www.ray-chunkit-chung.click"
 }
 
 variable "cognito_domain_prefix" {

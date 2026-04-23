@@ -7,7 +7,7 @@ variable "project_prefix" {
 variable "frontend_base_url" {
   description = "Production frontend URL for API CORS"
   type        = string
-  default     = "https://d2znnfez52b22b.cloudfront.net"
+  default     = "https://www.ray-chunkit-chung.click"
 }
 
 variable "openai_model" {
