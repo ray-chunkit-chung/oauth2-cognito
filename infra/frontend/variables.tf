@@ -16,6 +16,18 @@ variable "cognito_domain_prefix" {
   default     = "rcoauth2-auth"
 }
 
+variable "frontend_root_domain" {
+  description = "Apex frontend domain that redirects to www"
+  type        = string
+  default     = "ray-chunkit-chung.click"
+}
+
+variable "frontend_www_domain" {
+  description = "Canonical frontend domain"
+  type        = string
+  default     = "www.ray-chunkit-chung.click"
+}
+
 variable "google_client_id" {
   description = "Google OAuth client ID"
   type        = string

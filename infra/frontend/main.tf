@@ -34,13 +34,69 @@ resource "aws_cloudfront_function" "frontend_rewrite" {
   # Normalize pretty URLs ("/login") to exported static files ("/login.html").
   name    = "${var.project_prefix}-frontend-rewrite"
   runtime = "cloudfront-js-2.0"
-  comment = "Rewrite extensionless paths to static export HTML files"
+  comment = "Allow only custom domains, redirect apex to www, and rewrite static routes"
   publish = true
 
   code = <<-EOT
+    function buildQueryString(querystring) {
+      var pairs = [];
+
+      for (var key in querystring) {
+        if (!Object.prototype.hasOwnProperty.call(querystring, key)) {
+          continue;
+        }
+
+        var field = querystring[key];
+
+        if (field.multiValue && field.multiValue.length > 0) {
+          for (var i = 0; i < field.multiValue.length; i++) {
+            var multi = field.multiValue[i];
+            pairs.push(multi.value && multi.value.length > 0 ? key + '=' + multi.value : key);
+          }
+          continue;
+        }
+
+        pairs.push(field.value && field.value.length > 0 ? key + '=' + field.value : key);
+      }
+
+      return pairs.join('&');
+    }
+
     function handler(event) {
       var request = event.request;
       var uri = request.uri;
+      var host = request.headers.host && request.headers.host.value
+        ? request.headers.host.value.toLowerCase()
+        : '';
+
+      var rootDomain = '${var.frontend_root_domain}';
+      var wwwDomain = '${var.frontend_www_domain}';
+
+      if (host !== rootDomain && host !== wwwDomain) {
+        // Block default CloudFront hostname and any unexpected host header.
+        return {
+          statusCode: 403,
+          statusDescription: 'Forbidden'
+        };
+      }
+
+      if (host === rootDomain) {
+        // Canonicalize all apex requests to www.
+        var target = 'https://' + wwwDomain + uri;
+        var query = buildQueryString(request.querystring || {});
+
+        if (query.length > 0) {
+          target += '?' + query;
+        }
+
+        return {
+          statusCode: 301,
+          statusDescription: 'Moved Permanently',
+          headers: {
+            location: { value: target }
+          }
+        };
+      }
 
       if (uri.endsWith('/')) {
         // Map directory routes to index documents for static hosting.
@@ -63,8 +119,10 @@ resource "aws_cloudfront_function" "frontend_rewrite" {
 # ------------------------------------------------------------------------------
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
+  is_ipv6_enabled     = true
   default_root_object = "index.html"
   comment             = "${var.project_prefix} frontend"
+  aliases             = [var.frontend_root_domain, var.frontend_www_domain]
 
   origin {
     # S3 stays private; CloudFront reaches it with OAC-signed requests.
@@ -111,8 +169,9 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
-    # Default CloudFront cert is sufficient until a custom domain/cert is attached.
-    cloudfront_default_certificate = true
+    acm_certificate_arn      = aws_acm_certificate_validation.frontend_custom.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 }
 
