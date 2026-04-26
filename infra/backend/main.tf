@@ -31,15 +31,15 @@ data "aws_ssm_parameter" "cognito_user_pool_client_id" {
 
 resource "aws_secretsmanager_secret" "openai_api_key" {
   # Stores metadata for the OpenAI key. Secret value is managed outside Terraform.
-  name                    = local.openai_secret_name
-  description             = "OpenAI API key for ${var.project_prefix} backend"
+  name        = local.openai_secret_name
+  description = "OpenAI API key for ${var.project_prefix} backend"
   # Immediate destroy in ephemeral/test environments; no recovery window.
   recovery_window_in_days = 0
 }
 
 resource "aws_dynamodb_table" "chat" {
   # Simple single-table design: pk/sk stores sessions and messages.
-  name         = "${var.project_prefix}-chat"
+  name = "${var.project_prefix}-chat"
   # On-demand capacity avoids provisioning and handles bursty chat traffic.
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
@@ -122,14 +122,14 @@ resource "aws_lambda_function" "chat_api" {
   function_name = "${var.project_prefix}-chat-api"
   role          = aws_iam_role.chat_lambda.arn
   # Python 3.13 for current runtime support and performance improvements.
-  runtime       = "python3.13"
-  handler       = "handler.lambda_handler"
+  runtime = "python3.13"
+  handler = "handler.lambda_handler"
   # 30s covers model/network latency without keeping requests open too long.
-  timeout       = 30
+  timeout = 30
   # 1024 MB gives better CPU share for lower inference/serialization latency.
-  memory_size   = 1024
+  memory_size = 1024
 
-  filename         = local.lambda_zip_path
+  filename = local.lambda_zip_path
   # Forces deployment update when build artifact content changes.
   source_code_hash = filebase64sha256(local.lambda_zip_path)
 
@@ -174,9 +174,9 @@ resource "aws_apigatewayv2_api" "chat" {
 
 resource "aws_apigatewayv2_authorizer" "cognito" {
   # Verifies Cognito JWTs before API Gateway forwards protected requests to Lambda.
-  api_id           = aws_apigatewayv2_api.chat.id
-  name             = "${var.project_prefix}-cognito-jwt"
-  authorizer_type  = "JWT"
+  api_id          = aws_apigatewayv2_api.chat.id
+  name            = "${var.project_prefix}-cognito-jwt"
+  authorizer_type = "JWT"
   # Read token from Authorization header (Bearer <token>).
   identity_sources = ["$request.header.Authorization"]
 
@@ -184,16 +184,16 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
     # Token must be issued for this app client (aud claim).
     audience = [data.aws_ssm_parameter.cognito_user_pool_client_id.value]
     # Token must come from this Cognito user pool (iss claim).
-    issuer   = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${data.aws_ssm_parameter.cognito_user_pool_id.value}"
+    issuer = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${data.aws_ssm_parameter.cognito_user_pool_id.value}"
   }
 }
 
 resource "aws_apigatewayv2_integration" "chat_lambda" {
   # One Lambda proxy integration reused by every route.
   # API Gateway passes method/path/body to Lambda, and Lambda returns HTTP response data.
-  api_id                 = aws_apigatewayv2_api.chat.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.chat_api.invoke_arn
+  api_id           = aws_apigatewayv2_api.chat.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = aws_lambda_function.chat_api.invoke_arn
   # HTTP API v2 event shape keeps request context compact and consistent.
   payload_format_version = "2.0"
 }
@@ -250,8 +250,8 @@ resource "aws_apigatewayv2_route" "post_message" {
 
 resource "aws_apigatewayv2_stage" "default" {
   # $default stage means the invoke URL has no extra stage path segment.
-  api_id      = aws_apigatewayv2_api.chat.id
-  name        = "$default"
+  api_id = aws_apigatewayv2_api.chat.id
+  name   = "$default"
   # Auto-publish route/integration changes without manual stage deployments.
   auto_deploy = true
 }
@@ -263,7 +263,7 @@ resource "aws_lambda_permission" "allow_apigw" {
   function_name = aws_lambda_function.chat_api.function_name
   principal     = "apigateway.amazonaws.com"
   # Scope invoke rights to this API across all methods/routes/stages.
-  source_arn    = "${aws_apigatewayv2_api.chat.execution_arn}/*/*"
+  source_arn = "${aws_apigatewayv2_api.chat.execution_arn}/*/*"
 }
 
 resource "aws_cloudwatch_event_rule" "lambda_warmup" {
@@ -296,7 +296,7 @@ resource "aws_lambda_permission" "allow_eventbridge_warmup" {
   function_name = aws_lambda_function.chat_api.function_name
   principal     = "events.amazonaws.com"
   # Restrict warmup invoke permission to the single scheduled rule.
-  source_arn    = aws_cloudwatch_event_rule.lambda_warmup[0].arn
+  source_arn = aws_cloudwatch_event_rule.lambda_warmup[0].arn
 }
 
 # ------------------------------------------------------------------------------
