@@ -262,6 +262,162 @@ chmod +x backend/build.sh
 ./backend/build.sh
 ```
 
+## Custom Domain and ACM Setup
+
+This project provisions and wires the custom domain entirely from Terraform in [infra/frontend/domain.tf](infra/frontend/domain.tf) and [infra/frontend/main.tf](infra/frontend/main.tf).
+
+### Why this exists
+
+CloudFront distributions have a default hostname, but production apps usually need a branded domain and HTTPS. This setup gives you:
+
+- Friendly URLs (`www.ray-chunkit-chung.click`)
+- Automatic HTTPS at the edge (ACM certificate attached to CloudFront)
+- DNS ownership and routing through Route53
+- Canonical host behavior (apex redirected to `www`)
+
+### Prerequisite
+
+- A public Route53 hosted zone must already exist for `ray-chunkit-chung.click`.
+
+### Components and responsibilities
+
+- Route53 hosted zone: owns DNS records for the domain.
+- ACM certificate in `us-east-1`: provides TLS certificate for CloudFront.
+- CloudFront distribution: serves frontend content and terminates TLS.
+- CloudFront Function: enforces allowed hosts and redirects apex to `www`.
+- Route53 alias records: map apex and `www` DNS names to CloudFront.
+
+### Provisioning flow (Terraform apply)
+
+1. Terraform creates an ACM certificate in `us-east-1` for `www.ray-chunkit-chung.click` with `ray-chunkit-chung.click` as a SAN.
+2. Terraform creates Route53 DNS validation records from the ACM domain validation options.
+3. Terraform validates the certificate and then attaches the validated cert ARN to CloudFront.
+4. CloudFront is configured with both aliases (`ray-chunkit-chung.click` and `www.ray-chunkit-chung.click`).
+5. Route53 alias records (`A` and `AAAA`) for both apex and `www` point to the CloudFront distribution.
+6. The CloudFront Function only allows those two host headers, redirects apex to `www`, and rejects unexpected hosts.
+
+### Request flow (what happens in the browser)
+
+1. User opens `https://ray-chunkit-chung.click` or `https://www.ray-chunkit-chung.click`.
+2. DNS lookup goes to Route53 and resolves to CloudFront.
+3. Browser performs TLS handshake with CloudFront using the ACM certificate.
+4. If host is apex, CloudFront Function returns `301` to `https://www...`.
+5. If host is `www`, CloudFront serves static assets from S3 via OAC.
+
+ASCII overview:
+
+```text
+                     +------------------------------+
+                     | Route53 Hosted Zone          |
+                     | ray-chunkit-chung.click      |
+                     +---------------+--------------+
+                                     |
+                    A/AAAA alias for apex and www
+                                     |
+                                     v
+                     +------------------------------+
+Browser HTTPS -----> | CloudFront Distribution      |
+request              | aliases: apex + www          |
+                     | cert: ACM (us-east-1)        |
+                     +---------------+--------------+
+                                     |
+                      viewer-request CloudFront Function
+                      - allow only apex/www
+                      - apex -> 301 -> https://www...
+                                     |
+                                     v
+                     +------------------------------+
+                     | S3 Bucket (private origin)   |
+                     | rcoauth2-static              |
+                     +------------------------------+
+```
+
+Mermaid sequence view:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant R53 as Route53
+  participant CF as CloudFront
+  participant ACM as ACM (us-east-1)
+  participant F as CloudFront Function
+  participant S3 as S3 Origin (private)
+
+  B->>R53: DNS query for ray-chunkit-chung.click
+  R53-->>B: Alias answer -> CloudFront
+  B->>CF: TLS ClientHello (Host: apex or www)
+  CF->>ACM: Use attached cert for handshake
+  ACM-->>CF: Certificate material
+  CF-->>B: TLS established
+
+  B->>CF: HTTPS GET /
+  CF->>F: viewer-request hook
+
+  alt Host is apex
+    F-->>CF: 301 redirect to https://www...
+    CF-->>B: 301 Moved Permanently
+    B->>R53: DNS query for www.ray-chunkit-chung.click
+    R53-->>B: Alias answer -> CloudFront
+    B->>CF: HTTPS GET / (Host: www)
+    CF->>F: viewer-request hook
+  else Host is www
+    F-->>CF: Allow request
+  end
+
+  CF->>S3: Fetch object via OAC-signed request
+  S3-->>CF: index.html / asset
+  CF-->>B: 200 OK response
+```
+
+### Related frontend Terraform inputs
+
+- `frontend_root_domain`
+- `frontend_www_domain`
+- `frontend_base_url`
+
+### Why ACM must be in us-east-1
+
+CloudFront is a global service and only supports ACM certificates from `us-east-1` for viewer certificates. A cert in another region will not attach to CloudFront.
+
+### How this interacts with Cognito redirects
+
+`frontend_base_url` is used by Terraform and deploy steps to build Cognito callback/logout URLs. Keep it aligned with your canonical domain (`https://www...`) so login redirects stay consistent.
+
+### Change checklist (domain migration)
+
+If you move to a new domain, update these values first, then apply Terraform:
+
+1. `frontend_root_domain`
+2. `frontend_www_domain`
+3. `frontend_base_url`
+4. `cognito_domain_prefix` (only if you also want a new Hosted UI subdomain)
+
+After apply:
+
+1. Confirm ACM validation is `ISSUED`.
+2. Confirm CloudFront distribution has both aliases.
+3. Confirm Route53 apex and `www` alias records point to the distribution.
+4. Confirm `https://apex` redirects to `https://www`.
+5. Re-run frontend deployment so environment values and static assets are in sync.
+
+### Common troubleshooting
+
+- Browser shows certificate mismatch:
+  Usually means CloudFront is still using old cert/aliases, or DNS has not fully propagated.
+- Domain does not resolve:
+  Check hosted zone delegation at registrar and verify Route53 alias records exist.
+- `www` works but apex does not redirect:
+  Check CloudFront Function association on `viewer-request`.
+- OAuth callback errors after domain change:
+  Re-check `frontend_base_url` and Cognito app client callback/logout URLs.
+
+### Operational notes
+
+- ACM certificate for CloudFront must stay in `us-east-1`.
+- If you change domains, update the frontend Terraform variables and re-apply.
+- Keep `frontend_base_url` aligned with the canonical `https://www...` URL used for Cognito callback/logout settings.
+
 ## Route53
 
 Route53/custom domains are in use.
