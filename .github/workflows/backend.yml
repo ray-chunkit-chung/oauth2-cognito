@@ -80,7 +80,20 @@ jobs:
 
       - name: Smoke test health endpoint
         run: |
-          curl -fsS "${{ steps.config.outputs.chat_api_url }}/chat/health"
+          HEALTH_URL="${{ steps.config.outputs.chat_api_url }}/chat/health"
+
+          for attempt in $(seq 1 24); do
+            if curl -fsS --connect-timeout 5 --max-time 15 "$HEALTH_URL"; then
+              echo "Health check passed on attempt $attempt"
+              exit 0
+            fi
+
+            echo "Health check attempt $attempt/24 failed; waiting for custom domain DNS/TLS propagation..."
+            sleep 10
+          done
+
+          echo "Health check failed after retries: $HEALTH_URL"
+          exit 1
 
       - name: Deployment Summary
         if: ${{ success() }}
