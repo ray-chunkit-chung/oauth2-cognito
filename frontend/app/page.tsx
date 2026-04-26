@@ -19,6 +19,7 @@ import {
   listChatSessions,
   postChatMessage,
 } from "@/lib/chat-api";
+import { getChatApiBaseUrl } from "@/lib/runtime-config";
 
 // Prefixes for optimistic (temporary) message IDs created before the API reply arrives.
 // We use separate prefixes so we can identify and replace/remove placeholders reliably.
@@ -74,14 +75,37 @@ export default function Home() {
   const lastAssistantMessageIdRef = useRef<string | null>(null);
   const slowSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isChatConfigured = Boolean(
-    (process.env.NEXT_PUBLIC_CHAT_API_BASE_URL ?? "").trim(),
+  const [isChatConfigured, setIsChatConfigured] = useState<boolean | null>(
+    null,
   );
 
   const orderedSessions = useMemo(
     () => [...sessions].sort(sortSessionsByUpdatedAt),
     [sessions],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkChatConfig() {
+      try {
+        await getChatApiBaseUrl();
+        if (!cancelled) {
+          setIsChatConfigured(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setIsChatConfigured(false);
+        }
+      }
+    }
+
+    void checkChatConfig();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     // Keep users at /login unless we have a valid local auth session.
@@ -91,7 +115,7 @@ export default function Home() {
   }, [isAuthenticated, isLoading, router]);
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || !isChatConfigured) {
+    if (isLoading || !isAuthenticated || isChatConfigured !== true) {
       return;
     }
 
@@ -145,7 +169,7 @@ export default function Home() {
     if (
       isLoading ||
       !isAuthenticated ||
-      !isChatConfigured ||
+      isChatConfigured !== true ||
       !activeSessionId
     ) {
       return;
@@ -376,7 +400,15 @@ export default function Home() {
     );
   }
 
-  if (!isChatConfigured) {
+  if (isChatConfigured === null) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900 px-6 text-slate-100">
+        <p className="text-sm text-slate-300">Loading chat configuration...</p>
+      </div>
+    );
+  }
+
+  if (isChatConfigured === false) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900 px-6 text-slate-100">
         <div className="w-full max-w-lg rounded-2xl border border-amber-400/40 bg-slate-950/80 p-7 shadow-lg shadow-black/30">
@@ -384,7 +416,7 @@ export default function Home() {
             Chat API is not configured
           </h1>
           <p className="mt-3 text-sm text-slate-300">
-            Set NEXT_PUBLIC_CHAT_API_BASE_URL in frontend environment settings.
+            Configure /config.json with chatApiBaseUrl.
           </p>
           <button
             type="button"
