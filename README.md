@@ -32,7 +32,7 @@ This project is a static Next.js frontend on CloudFront/S3 with Google login via
 - DNS/TLS: Route53 + ACM (us-east-1) for apex and www custom domains
 - Auth broker: Cognito User Pool + Hosted UI domain
 - External identity provider: Google OAuth 2.0
-- API: API Gateway HTTP API
+- API: API Gateway HTTP API on `api.ray-chunkit-chung.click`
 - Compute: Lambda (`python3.13`)
 - Data store: DynamoDB (`rcoauth2-chat`)
 - Secret store: AWS Secrets Manager (`rcoauth2/backend/openai-api-key`)
@@ -45,6 +45,10 @@ Production entrypoint:
 Also supported:
 
 - `https://ray-chunkit-chung.click` (301 redirect to `www`)
+
+Production API endpoint:
+
+- `https://api.ray-chunkit-chung.click`
 
 ```mermaid
 flowchart LR
@@ -92,6 +96,8 @@ Creates and maintains:
 
 - Lambda function + IAM role/policy + log group
 - API Gateway HTTP API + JWT authorizer + routes + stage
+- API Gateway custom domain (`api.ray-chunkit-chung.click`) + DNS + ACM validation
+- Default `execute-api` endpoint disabled (custom domain only)
 - DynamoDB chat table
 - Secrets Manager secret metadata (secret value injected by CI)
 - SSM parameters for backend runtime/config lookup
@@ -239,7 +245,7 @@ This enforces per-user isolation by Cognito subject.
 ### Terraform Inputs
 
 - Frontend: `google_client_id`, `google_client_secret`
-- Backend: `project_prefix`, `frontend_base_url`, `openai_model`, `enable_lambda_warmup`, `lambda_warmup_interval_minutes`
+- Backend: `project_prefix`, `frontend_base_url`, `frontend_root_domain`, `api_domain_name`, `openai_model`, `enable_lambda_warmup`, `lambda_warmup_interval_minutes`
 
 ## Local Development Notes
 
@@ -265,6 +271,8 @@ chmod +x backend/build.sh
 ## Custom Domain and ACM Setup
 
 This project provisions and wires the custom domain entirely from Terraform in [infra/frontend/domain.tf](infra/frontend/domain.tf) and [infra/frontend/main.tf](infra/frontend/main.tf).
+
+Backend custom domain is also provisioned from Terraform in [infra/backend/main.tf](infra/backend/main.tf).
 
 ### Why this exists
 
@@ -376,6 +384,24 @@ sequenceDiagram
 - `frontend_www_domain`
 - `frontend_base_url`
 
+## Backend API Custom Domain
+
+Backend API traffic is served through `https://api.ray-chunkit-chung.click`.
+
+Provisioned in Terraform ([infra/backend/main.tf](infra/backend/main.tf)):
+
+- ACM certificate in API region (`ap-northeast-1`) with DNS validation
+- API Gateway HTTP API custom domain + mapping to `$default` stage
+- Route53 `A` and `AAAA` alias records for `api.ray-chunkit-chung.click`
+- API Gateway default `execute-api` endpoint disabled
+- SSM parameter `/rcoauth2/backend/chat-api-url` published as custom domain URL
+
+Verification checks:
+
+1. `https://api.ray-chunkit-chung.click/chat/health` returns `200`.
+2. Default `execute-api` URL is inaccessible.
+3. Frontend chat requests continue working via `NEXT_PUBLIC_CHAT_API_BASE_URL`.
+
 ### Why ACM must be in us-east-1
 
 CloudFront is a global service and only supports ACM certificates from `us-east-1` for viewer certificates. A cert in another region will not attach to CloudFront.
@@ -424,4 +450,5 @@ Route53/custom domains are in use.
 
 - Apex: `ray-chunkit-chung.click`
 - Canonical: `www.ray-chunkit-chung.click`
+- API: `api.ray-chunkit-chung.click`
 - Apex requests are redirected to `www` by the CloudFront Function.

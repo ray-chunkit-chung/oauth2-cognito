@@ -1,6 +1,6 @@
 output "chat_api_url" {
-  description = "HTTP API invoke URL"
-  value       = aws_apigatewayv2_stage.default.invoke_url
+  description = "Canonical backend API URL"
+  value       = "https://${aws_apigatewayv2_domain_name.chat_api_custom.domain_name}"
 }
 
 output "chat_table_name" {

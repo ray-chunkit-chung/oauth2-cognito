@@ -9,6 +9,12 @@ locals {
   frontend_allowed_origins = [var.frontend_base_url]
 }
 
+data "aws_route53_zone" "public" {
+  # Look up the existing public hosted zone that owns the frontend/backend subdomains.
+  name         = "${var.frontend_root_domain}."
+  private_zone = false
+}
+
 # ------------------------------------------------------------------------------
 # Cognito Config Inputs (from frontend stack)
 # ------------------------------------------------------------------------------
@@ -159,6 +165,8 @@ resource "aws_apigatewayv2_api" "chat" {
   # Creates the HTTP API container that holds routes, integrations, and auth settings.
   name          = "${var.project_prefix}-chat-http-api"
   protocol_type = "HTTP"
+  # Force all traffic through the custom domain and block the default execute-api hostname.
+  disable_execute_api_endpoint = true
 
   cors_configuration {
     # Frontend origins allowed by browsers to call this API.
@@ -256,6 +264,84 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 
+resource "aws_acm_certificate" "chat_api_custom" {
+  # API Gateway regional custom domains require a certificate in the same region.
+  domain_name       = var.api_domain_name
+  validation_method = "DNS"
+
+  lifecycle {
+    # Avoid HTTPS downtime during certificate replacement.
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "chat_api_cert_validation" {
+  # Create ACM DNS validation records in Route53.
+  for_each = {
+    for dvo in aws_acm_certificate.chat_api_custom.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  zone_id = data.aws_route53_zone.public.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.record]
+}
+
+resource "aws_acm_certificate_validation" "chat_api_custom" {
+  # Wait for ACM validation before attaching certificate to API Gateway domain.
+  certificate_arn         = aws_acm_certificate.chat_api_custom.arn
+  validation_record_fqdns = [for record in aws_route53_record.chat_api_cert_validation : record.fqdn]
+}
+
+resource "aws_apigatewayv2_domain_name" "chat_api_custom" {
+  # Custom domain for client traffic to the HTTP API.
+  domain_name = var.api_domain_name
+
+  domain_name_configuration {
+    certificate_arn = aws_acm_certificate_validation.chat_api_custom.certificate_arn
+    endpoint_type   = "REGIONAL"
+    security_policy = "TLS_1_2"
+  }
+}
+
+resource "aws_apigatewayv2_api_mapping" "chat_api_custom" {
+  # Route custom domain root path directly to the existing $default stage.
+  api_id      = aws_apigatewayv2_api.chat.id
+  domain_name = aws_apigatewayv2_domain_name.chat_api_custom.id
+  stage       = aws_apigatewayv2_stage.default.name
+}
+
+resource "aws_route53_record" "chat_api_a" {
+  # IPv4 alias: api subdomain -> API Gateway custom domain.
+  zone_id = data.aws_route53_zone.public.zone_id
+  name    = var.api_domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_apigatewayv2_domain_name.chat_api_custom.domain_name_configuration[0].target_domain_name
+    zone_id                = aws_apigatewayv2_domain_name.chat_api_custom.domain_name_configuration[0].hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "chat_api_aaaa" {
+  # IPv6 alias: api subdomain -> API Gateway custom domain.
+  zone_id = data.aws_route53_zone.public.zone_id
+  name    = var.api_domain_name
+  type    = "AAAA"
+
+  alias {
+    name                   = aws_apigatewayv2_domain_name.chat_api_custom.domain_name_configuration[0].target_domain_name
+    zone_id                = aws_apigatewayv2_domain_name.chat_api_custom.domain_name_configuration[0].hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
 resource "aws_lambda_permission" "allow_apigw" {
   # Allow this API Gateway to invoke the Lambda function.
   statement_id  = "AllowExecutionFromAPIGateway"
@@ -306,7 +392,7 @@ resource "aws_ssm_parameter" "chat_api_url" {
   # Used by CI/CD and clients to discover the backend base URL.
   name  = "/${var.project_prefix}/backend/chat-api-url"
   type  = "String"
-  value = aws_apigatewayv2_stage.default.invoke_url
+  value = "https://${aws_apigatewayv2_domain_name.chat_api_custom.domain_name}"
 }
 
 resource "aws_ssm_parameter" "openai_secret_arn" {

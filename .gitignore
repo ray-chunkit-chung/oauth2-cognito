@@ -5,3 +5,4 @@ infra/backend/.terraform/terraform.tfstate
 infra/frontend/test_validate/.terraform.lock.hcl
 infra/backend/.fmt_check.code
 infra/backend/.fmt_check.out
+infra/backend/.terraform.lock.hcl
