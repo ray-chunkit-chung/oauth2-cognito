@@ -8,7 +8,13 @@ terraform {
     }
   }
 
-
+  backend "s3" {
+    bucket         = "rcoauth2-terraform-state"
+    key            = "backend/terraform.tfstate"
+    region         = "ap-northeast-1"
+    dynamodb_table = "rcoauth2-terraform-locks"
+    encrypt        = true
+  }
 }
 
 provider "aws" {}
