@@ -174,9 +174,9 @@ resource "aws_apigatewayv2_api" "chat" {
 
 resource "aws_apigatewayv2_authorizer" "cognito" {
   # Verifies Cognito JWTs before API Gateway forwards protected requests to Lambda.
-  api_id          = aws_apigatewayv2_api.chat.id
-  name            = "${var.project_prefix}-cognito-jwt"
-  authorizer_type = "JWT"
+  api_id           = aws_apigatewayv2_api.chat.id
+  name             = "${var.project_prefix}-cognito-jwt"
+  authorizer_type  = "JWT"
   # Read token from Authorization header (Bearer <token>).
   identity_sources = ["$request.header.Authorization"]
 
@@ -184,7 +184,7 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
     # Token must be issued for this app client (aud claim).
     audience = [data.aws_ssm_parameter.cognito_user_pool_client_id.value]
     # Token must come from this Cognito user pool (iss claim).
-    issuer = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${data.aws_ssm_parameter.cognito_user_pool_id.value}"
+    issuer   = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${data.aws_ssm_parameter.cognito_user_pool_id.value}"
   }
 }
 
