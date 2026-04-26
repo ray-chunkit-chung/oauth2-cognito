@@ -29,6 +29,7 @@ This project is a static Next.js frontend on CloudFront/S3 with Google login via
 - Frontend app: Next.js static export (`frontend/out`)
 - Static hosting: S3 (`rcoauth2-static`)
 - CDN/edge: CloudFront + CloudFront Function rewrite
+- DNS/TLS: Route53 + ACM (us-east-1) for apex and www custom domains
 - Auth broker: Cognito User Pool + Hosted UI domain
 - External identity provider: Google OAuth 2.0
 - API: API Gateway HTTP API
@@ -39,7 +40,11 @@ This project is a static Next.js frontend on CloudFront/S3 with Google login via
 
 Production entrypoint:
 
-- `https://d2znnfez52b22b.cloudfront.net`
+- `https://www.ray-chunkit-chung.click`
+
+Also supported:
+
+- `https://ray-chunkit-chung.click` (301 redirect to `www`)
 
 ```mermaid
 flowchart LR
@@ -77,6 +82,7 @@ Creates and maintains:
 
 - S3 bucket + restrictive public access policy
 - CloudFront distribution + OAC + route rewrite function
+- ACM certificate validation + Route53 apex/www alias records
 - Cognito user pool, Google identity provider, domain, app client
 - SSM parameters used by frontend deploy and backend auth setup
 
@@ -89,6 +95,11 @@ Creates and maintains:
 - DynamoDB chat table
 - Secrets Manager secret metadata (secret value injected by CI)
 - SSM parameters for backend runtime/config lookup
+
+Terraform state backend for backend stack:
+
+- S3 state file: `s3://rcoauth2-terraform-state/backend/terraform.tfstate`
+- Locking table: `rcoauth2-terraform-locks`
 
 Backend Terraform guide for detailed planning and refactor notes:
 
@@ -156,7 +167,7 @@ sequenceDiagram
 5. Frontend checks local session state:
    - unauthenticated users are redirected to `/login`
    - authenticated users can load sessions/messages
-6. Chat UI behavior: message composer uses `Enter` for newline and `Shift+Enter` to send, and users can delete a single session from the sidebar after a confirmation prompt.
+6. Chat UI behavior: message composer uses `Enter` for newline and `Shift+Enter` to send, and users can delete a single session from the sidebar.
 
 ### Backend Runtime
 
@@ -228,7 +239,7 @@ This enforces per-user isolation by Cognito subject.
 ### Terraform Inputs
 
 - Frontend: `google_client_id`, `google_client_secret`
-- Backend: `project_prefix`, `frontend_base_url`, `openai_model`
+- Backend: `project_prefix`, `frontend_base_url`, `openai_model`, `enable_lambda_warmup`, `lambda_warmup_interval_minutes`
 
 ## Local Development Notes
 
@@ -253,4 +264,8 @@ chmod +x backend/build.sh
 
 ## Route53
 
-Route53/custom domain is not in use currently (CloudFront domain is used directly).
+Route53/custom domains are in use.
+
+- Apex: `ray-chunkit-chung.click`
+- Canonical: `www.ray-chunkit-chung.click`
+- Apex requests are redirected to `www` by the CloudFront Function.
