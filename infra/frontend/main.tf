@@ -169,6 +169,9 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
+    # Wiring to domain.tf:
+    # - domain.tf creates and validates the ACM cert in us-east-1.
+    # - this distribution consumes that validated cert ARN for HTTPS on custom domains.
     acm_certificate_arn      = aws_acm_certificate_validation.frontend_custom.certificate_arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
@@ -295,6 +298,7 @@ resource "aws_ssm_parameter" "s3_bucket_name" {
 
 resource "aws_ssm_parameter" "frontend_base_url" {
   # Canonical frontend URL for auth redirects and frontend build configuration.
+  # Keep this aligned with var.frontend_www_domain/domain records in domain.tf.
   name  = "/${var.project_prefix}/frontend/frontend-base-url"
   type  = "String"
   value = var.frontend_base_url
@@ -316,6 +320,7 @@ resource "aws_ssm_parameter" "cognito_user_pool_client_id" {
 
 resource "aws_ssm_parameter" "cognito_hosted_ui_domain" {
   # Exposed so the app can build Cognito Hosted UI authorize/logout URLs.
+  # This is Cognito's domain prefix output, not the app custom domain in domain.tf.
   name  = "/${var.project_prefix}/frontend/cognito-hosted-ui-domain"
   type  = "String"
   value = aws_cognito_user_pool_domain.frontend.domain
