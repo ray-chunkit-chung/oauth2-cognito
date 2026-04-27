@@ -19,7 +19,10 @@ import {
   listChatSessions,
   postChatMessage,
 } from "@/lib/chat-api";
-import { getChatApiBaseUrl } from "@/lib/runtime-config";
+import {
+  getChatApiBaseUrl,
+  RuntimeConfigMissingError,
+} from "@/lib/runtime-config";
 
 // Prefixes for optimistic (temporary) message IDs created before the API reply arrives.
 // We use separate prefixes so we can identify and replace/remove placeholders reliably.
@@ -59,43 +62,63 @@ function toErrorMessage(error: unknown): string {
 export default function Home() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading } = useAuth();
+  // Core chat view state (sessions, selected thread, messages, and draft input).
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+  // Network/request activity state used to drive loading and button disabling.
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isDeletingSessionId, setIsDeletingSessionId] = useState<string | null>(
     null,
   );
+  // UX feedback state (errors, slow-send hint, and scroll tracking refs).
   const [error, setError] = useState<string | null>(null);
   const [showSlowSendHint, setShowSlowSendHint] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const lastAssistantMessageIdRef = useRef<string | null>(null);
   const slowSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [isChatConfigured, setIsChatConfigured] = useState<boolean | null>(
-    null,
-  );
+  // Runtime-config status gates chat requests until config is confirmed usable.
+  const [chatConfigStatus, setChatConfigStatus] = useState<
+    "loading" | "ready" | "missing" | "unavailable"
+  >("loading");
+  const [chatConfigError, setChatConfigError] = useState<string | null>(null);
+  const [chatConfigAttempt, setChatConfigAttempt] = useState(0);
 
+  // Keep list rendering deterministic with newest-updated sessions first.
   const orderedSessions = useMemo(
     () => [...sessions].sort(sortSessionsByUpdatedAt),
     [sessions],
   );
 
   useEffect(() => {
+    // Validate runtime config before enabling any chat API traffic.
     let cancelled = false;
 
     async function checkChatConfig() {
+      // Runtime config is loaded from /config.json at startup so
+      // backend endpoint changes can be deployed without rebuilding JS bundles.
+      setChatConfigStatus("loading");
+      setChatConfigError(null);
+
       try {
         await getChatApiBaseUrl();
         if (!cancelled) {
-          setIsChatConfigured(true);
+          setChatConfigStatus("ready");
         }
-      } catch {
+      } catch (configError) {
         if (!cancelled) {
-          setIsChatConfigured(false);
+          // Distinguish permanent misconfiguration from temporary load failures.
+          if (configError instanceof RuntimeConfigMissingError) {
+            setChatConfigStatus("missing");
+            return;
+          }
+
+          setChatConfigStatus("unavailable");
+          setChatConfigError(toErrorMessage(configError));
         }
       }
     }
@@ -105,17 +128,18 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [chatConfigAttempt]);
 
   useEffect(() => {
-    // Keep users at /login unless we have a valid local auth session.
+    // Enforce auth guard on this page.
     if (!isLoading && !isAuthenticated) {
       router.replace("/login");
     }
   }, [isAuthenticated, isLoading, router]);
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || isChatConfigured !== true) {
+    // Load session list once auth and runtime config are ready.
+    if (isLoading || !isAuthenticated || chatConfigStatus !== "ready") {
       return;
     }
 
@@ -163,13 +187,14 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, isChatConfigured, isLoading]);
+  }, [chatConfigStatus, isAuthenticated, isLoading]);
 
   useEffect(() => {
+    // Load messages for the selected session.
     if (
       isLoading ||
       !isAuthenticated ||
-      isChatConfigured !== true ||
+      chatConfigStatus !== "ready" ||
       !activeSessionId
     ) {
       return;
@@ -206,9 +231,10 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId, isAuthenticated, isChatConfigured, isLoading]);
+  }, [activeSessionId, chatConfigStatus, isAuthenticated, isLoading]);
 
   useEffect(() => {
+    // Track latest assistant message and auto-scroll only for new assistant replies.
     const lastAssistantMessage = [...messages]
       .reverse()
       .find((message) => message.role === "assistant");
@@ -235,6 +261,7 @@ export default function Home() {
   }, [messages]);
 
   useEffect(() => {
+    // Delay the slow-send hint so normal responses are not noisy.
     if (!isSending) {
       if (slowSendTimerRef.current) {
         clearTimeout(slowSendTimerRef.current);
@@ -262,10 +289,11 @@ export default function Home() {
   }, [isSending]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    // Submit message with optimistic user/assistant placeholders.
     event.preventDefault();
 
     const text = draft.trim();
-    if (!text || isSending || !isChatConfigured) {
+    if (!text || isSending || chatConfigStatus !== "ready") {
       return;
     }
 
@@ -347,12 +375,14 @@ export default function Home() {
   }
 
   function startNewChat() {
+    // Local reset creates a new conversation context before first message send.
     setActiveSessionId(null);
     setMessages([]);
     setError(null);
   }
 
   async function handleDeleteSession(sessionId: string) {
+    // Delete a session server-side, then refresh local session selection safely.
     if (isDeletingSessionId) {
       return;
     }
@@ -384,6 +414,7 @@ export default function Home() {
     }
   }
 
+  // Global guard screens keep rendering logic explicit for each prerequisite state.
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900 px-6 text-slate-100">
@@ -400,7 +431,7 @@ export default function Home() {
     );
   }
 
-  if (isChatConfigured === null) {
+  if (chatConfigStatus === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900 px-6 text-slate-100">
         <p className="text-sm text-slate-300">Loading chat configuration...</p>
@@ -408,7 +439,7 @@ export default function Home() {
     );
   }
 
-  if (isChatConfigured === false) {
+  if (chatConfigStatus === "missing") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900 px-6 text-slate-100">
         <div className="w-full max-w-lg rounded-2xl border border-amber-400/40 bg-slate-950/80 p-7 shadow-lg shadow-black/30">
@@ -430,6 +461,39 @@ export default function Home() {
     );
   }
 
+  if (chatConfigStatus === "unavailable") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900 px-6 text-slate-100">
+        <div className="w-full max-w-lg rounded-2xl border border-rose-400/40 bg-slate-950/80 p-7 shadow-lg shadow-black/30">
+          <h1 className="text-xl font-semibold text-rose-300">
+            Unable to load chat configuration
+          </h1>
+          <p className="mt-3 text-sm text-slate-300">
+            {chatConfigError ??
+              "Could not load /config.json right now. Please retry."}
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => setChatConfigAttempt((value) => value + 1)}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-900/30 px-4 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-900/50"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-600 bg-slate-800 px-4 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main app shell: session list on the left and active chat thread on the right.
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 text-slate-100">
       <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
