@@ -20,13 +20,6 @@ GOOGLE_CLIENT_SECRET
 OPENAI_API_KEY
 ```
 
-## AWS Resource Prefix
-
-All AWS resources use this prefix:
-
-```text
-rcoauth2
-```
 
 ## Current Architecture
 
