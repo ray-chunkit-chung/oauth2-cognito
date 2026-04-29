@@ -1,5 +1,11 @@
 # AWS OAuth 2.0 Example
 
+Demo URL
+
+```text
+https://www.ray-chunkit-chung.click/
+```
+
 ## Secrets
 
 Use these GitHub Actions secrets for CI/CD:
@@ -14,13 +20,6 @@ GOOGLE_CLIENT_SECRET
 OPENAI_API_KEY
 ```
 
-## AWS Resource Prefix
-
-All AWS resources use this prefix:
-
-```text
-rcoauth2
-```
 
 ## Current Architecture
 
