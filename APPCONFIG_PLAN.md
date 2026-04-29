@@ -314,4 +314,56 @@ Operational characteristics:
 - Roll back AppConfig happens when a newly deployed configuration causes regression (for example login failure, wrong API target, or elevated error rates) and operators revert the environment to the last known good AppConfig version/deployment.
 - User-visible impact happens only after rollout progresses and cache TTLs expire; in this plan, expect clients to observe changes within about 30-60 seconds after deployment reaches active state.
 
+## Timing Additions for Operators and Agents
+
+### End-to-End Timing Example
+
+1. T+0m: Create AppConfig version.
+2. T+1m: Start AppConfig deployment to `prod`.
+3. T+3m: Rollout reaches complete (example for short strategy).
+4. T+4m: CloudFront and browser cache windows begin to refresh.
+5. T+5m: Most users see new config.
+
+### Rollout Strategy Timing Reference
+
+| Strategy | Typical Completion Time | Use When | Rollback Speed |
+| --- | --- | --- | --- |
+| Immediate | ~1-2 minutes | Low-risk config changes | Fastest |
+| Linear (for example 20% every 2m) | ~10-12 minutes | Moderate risk changes | Fast |
+| Canary (for example 10%, then full) | ~10-20 minutes | Higher-risk auth/API changes | Medium |
+
+### Trigger and Action Timing Matrix
+
+| Trigger | Action | Target Time |
+| --- | --- | --- |
+| New approved config | Start AppConfig deployment | Within 5 minutes of approval |
+| Error-rate spike after deploy | Pause rollout and investigate | Within 5 minutes of alert |
+| Confirmed regression | Roll back AppConfig to last known good | Within 10 minutes of confirmation |
+| Severe outage during migration | Re-enable S3 `config.json` fallback path | Within 15 minutes |
+
+### Propagation Budget by Layer
+
+- AppConfig rollout completion: strategy-dependent (about 1-20 minutes).
+- Backend in-memory config cache: 15-30 seconds.
+- CloudFront `/config.json` cache: 30-60 seconds.
+- Browser cache for `/config.json`: up to 30 seconds target.
+- Typical total user-visible propagation after rollout completion: about 1-2 minutes.
+
+### Monitoring Checkpoints
+
+1. T+1m: `GET /public/config` healthy and returns expected version.
+2. T+5m: Login success rate and API 4xx/5xx within normal range.
+3. T+15m: No sustained regression, rollout marked stable.
+
+### Rollback SLA Targets
+
+- Detect regression: within 5 minutes.
+- Decide rollback: within 10 minutes.
+- Complete rollback and recover users: within 15 minutes.
+
+### Operator and User Timing Promise
+
+- Operator promise: config changes should fully propagate within the selected rollout window plus 2 minutes of cache refresh.
+- User promise: hard refresh should usually not be required; most changes should appear within about 30-60 seconds after rollout is active.
+
 
