@@ -13,7 +13,7 @@ Primary outcomes:
 ## Current State (Repository-Specific)
 
 - Frontend runtime loader already exists in `frontend/lib/runtime-config.ts` and fetches `/config.json`.
-- Chat API client already reads runtime `chatApiBaseUrl` from that loader.
+- Chat API client `frontend/lib/chat-api.ts` already reads runtime `chatApiBaseUrl` from that loader.
 - Frontend auth still depends on build-time `NEXT_PUBLIC_*` vars in `frontend/hooks/use-auth.ts`.
 - Frontend GitHub Actions workflow currently writes `out/config.json` during deploy.
 - CloudFront currently uses one default cache behavior for the whole site.
