@@ -249,3 +249,69 @@ Cache tests:
 3. PR 3: CloudFront `/config.json` behavior + cache policy.
 4. PR 4: Frontend runtime auth migration.
 5. PR 5: CI cleanup + optional AppConfig publish workflow.
+
+## config.json Lifecycle Comparison (Current vs AppConfig)
+
+### Current (Today)
+
+How `config.json` is created:
+
+1. Frontend workflow reads runtime values (for example backend API URL) from SSM.
+2. During frontend deploy, `.github/workflows/frontend.yml` writes `frontend/out/config.json`.
+3. Workflow uploads that file to S3 bucket root as `config.json`.
+4. CloudFront serves `/config.json` from S3.
+
+How `config.json` is consumed:
+
+1. Browser loads frontend static assets from CloudFront.
+2. Frontend runtime loader (`frontend/lib/runtime-config.ts`) fetches `/config.json`.
+3. Chat client uses `chatApiBaseUrl` from the loaded JSON.
+
+Operational characteristics:
+
+- Updating config requires running frontend deployment pipeline.
+- Config change is coupled to static site deployment.
+- Frontend currently uses runtime config for chat URL, but auth values are still build-time.
+
+### After AppConfig Migration
+
+How `config.json` is created:
+
+1. Runtime config is authored and versioned in AWS AppConfig (hosted configuration).
+2. Backend endpoint (`GET /public/config`) reads active AppConfig data and returns JSON.
+3. CloudFront path behavior routes `/config.json` to backend origin (not S3).
+4. CloudFront caches response briefly (for example 30-60 seconds), then refreshes.
+
+How `config.json` is consumed:
+
+1. Browser still requests same path: `/config.json`.
+2. Frontend runtime loader behavior remains unchanged (same endpoint contract).
+3. Both chat API and auth config are read from runtime JSON.
+
+Operational characteristics:
+
+- Updating config does not require frontend rebuild/redeploy.
+- Config rollout can be controlled via AppConfig deployment strategies.
+- Runtime changes become visible on clients after short cache TTL.
+- Safer rollback: revert AppConfig version/deployment rather than redeploying frontend assets.
+
+### Side-by-Side Summary
+
+| Aspect | Current | After AppConfig |
+| --- | --- | --- |
+| Source of truth | Workflow-generated file | AppConfig hosted configuration |
+| Who writes `/config.json` | Frontend CI writes file to S3 | Backend endpoint materializes config from AppConfig |
+| CloudFront origin for `/config.json` | S3 origin | API/backend origin |
+| Change trigger | Frontend deploy | AppConfig deployment |
+| Time to propagate | Depends on deploy + cache | Short TTL + AppConfig rollout |
+| Coupling to frontend build | High | Low |
+| Rollback path | Redeploy previous frontend config file | Roll back AppConfig version/deployment |
+
+## AppConfig Deployment vs Rollout Timing
+
+- AppConfig deployment happens when a new hosted configuration version is created and promoted to the target environment (for example `prod`) using an AppConfig deployment action.
+- AppConfig rollout happens after that deployment starts, during the deployment strategy window (for example immediate, linear, or canary), and finishes when AppConfig marks the deployment as complete.
+- Roll back AppConfig happens when a newly deployed configuration causes regression (for example login failure, wrong API target, or elevated error rates) and operators revert the environment to the last known good AppConfig version/deployment.
+- User-visible impact happens only after rollout progresses and cache TTLs expire; in this plan, expect clients to observe changes within about 30-60 seconds after deployment reaches active state.
+
+
