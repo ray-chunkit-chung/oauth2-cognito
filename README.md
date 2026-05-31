@@ -159,6 +159,27 @@ sequenceDiagram
   FE->>FE: Store session in sessionStorage
 ```
 
+### Google Cloud Console OAuth Settings
+
+When using Cognito Hosted UI with Google as an IdP, configure Google OAuth to trust the
+Cognito domain (not the frontend domain) for Google callback handling.
+
+Production values for this repo:
+
+- Authorized JavaScript origins:
+  - `https://rcoauth2-auth.auth.<aws-region>.amazoncognito.com`
+- Authorized redirect URIs:
+  - `https://rcoauth2-auth.auth.<aws-region>.amazoncognito.com/oauth2/idpresponse`
+
+Frontend callback remains separate and is configured in Cognito app client callback URLs:
+
+- `https://www.ray-chunkit-chung.click/auth/callback`
+
+Notes:
+
+- Replace `<aws-region>` with your deployed AWS region (for example `ap-northeast-1`).
+- Keep `frontend_base_url` aligned with your canonical `https://www...` domain so Cognito callback/logout URLs stay consistent.
+
 ## Runtime Data Flow
 
 ### Frontend Runtime
