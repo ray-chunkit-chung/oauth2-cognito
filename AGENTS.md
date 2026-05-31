@@ -21,3 +21,18 @@ Fpor all AWS resources, use the following prefix:
 ```text
 rcoauth2
 ```
+
+## GITHUB CLI
+
+Use PAT to login github
+
+```bash
+echo "ghp_your_personal_access_token_here" | gh auth login --with-token
+```
+
+```ps
+"ghp_your_personal_access_token_here" | gh auth login --with-token
+```
+
+
+
