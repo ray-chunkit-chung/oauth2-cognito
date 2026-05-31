@@ -55,4 +55,4 @@ jobs:
 
       - name: Terraform Destroy
         shell: bash
-        run: terraform destroy -auto-approve
+        run: terraform destroy -refresh=false -auto-approve
